@@ -9,6 +9,8 @@ from services.water_calculator import calculate_norm
 from services.weather_service import get_current_temp  # ← ИСПРАВЛЕНО: было get_current_temperature
 from services.scheduler_service import generate_reminder_schedule
 from utils.time_utils import get_user_local_time
+from jobs.weekly_report_job import send_weekly_report_for_user
+from jobs.monthly_report_job import send_monthly_report_for_user
 
 
 async def check_and_send_reminders(context: ContextTypes.DEFAULT_TYPE):
@@ -19,7 +21,18 @@ async def check_and_send_reminders(context: ContextTypes.DEFAULT_TYPE):
         # Получаем ЛОКАЛЬНОЕ время пользователя
         local_now = get_user_local_time(user['timezone'])
         local_date_str = local_now.strftime('%Y-%m-%d')
+        current_weekday = local_now.weekday()  # 0 = понедельник
+        current_day = local_now.day
         current_time_str = local_now.strftime('%H:%M')
+
+        # Еженедельный отчёт: понедельник, 09:00
+        if current_weekday == 0 and current_time_str == "09:00":
+            await send_weekly_report_for_user(context, user)
+
+        # Ежемесячный отчёт: 1-е число, 09:00
+        if current_day == 1 and current_time_str == "09:00":
+            await send_monthly_report_for_user(context, user)
+        
 
         # === 1. Проверка: нужно ли сгенерировать расписание на сегодня? ===
         existing_schedule = db.get_daily_schedule(user['user_id'], local_date_str)
