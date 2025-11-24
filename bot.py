@@ -1,0 +1,156 @@
+import logging
+import warnings
+from telegram.warnings import PTBUserWarning
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from config.settings import BOT_TOKEN
+from handlers.start_handler import start
+from handlers.stats_handler import stats
+from handlers.notifications_handler import notifications, toggle_notifications
+from handlers.water_handler import handle_water_button
+
+# Регистрация обработчиков регистрации
+from handlers.registration_handler import (
+    start_registration, weight_input, height_input, gender_input,
+    activity_input, timezone_input, timezone_text_input,
+    notif_time_start_input, notif_time_end_input, city_input,
+    confirm_save, cancel, WEIGHT, HEIGHT, GENDER, ACTIVITY,
+    TIMEZONE, NOTIF_TIME_START, NOTIF_TIME_END, CITY, CONFIRM,
+    ConversationHandler
+)
+
+# Регистрация обработчиков редактирования профиля
+from handlers.profile_handler import (
+    edit_profile, start_edit_weight, save_weight,
+    start_edit_height, save_height,
+    start_edit_gender, save_gender,
+    start_edit_activity, save_activity,
+    cancel_edit,
+    EDIT_WEIGHT, EDIT_HEIGHT, EDIT_GENDER, EDIT_ACTIVITY
+)
+
+# Джобы
+from jobs.reminder_job import check_and_send_reminders
+from jobs.weekly_report_job import send_weekly_report
+from jobs.monthly_report_job import send_monthly_report
+
+from database.models import init_db
+import sqlite3
+import pytz
+from datetime import time
+
+# Подавление предупреждения per_message
+warnings.filterwarnings("ignore", category=PTBUserWarning, message=r".*per_message.*")
+
+# Логирование
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+def main():
+    init_db()
+
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    # --- Мини-диалоги для редактирования одного поля ---
+    edit_weight_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_edit_weight, pattern="^edit_weight$")],
+        states={EDIT_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_weight)]},
+        fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
+    )
+
+    edit_height_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_edit_height, pattern="^edit_height$")],
+        states={EDIT_HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_height)]},
+        fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
+    )
+
+    edit_gender_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_edit_gender, pattern="^edit_gender$")],
+        states={EDIT_GENDER: [CallbackQueryHandler(save_gender, pattern=r"^edit_gender:.+$")]},
+        fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
+    )
+
+    edit_activity_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_edit_activity, pattern="^edit_activity$")],
+        states={EDIT_ACTIVITY: [CallbackQueryHandler(save_activity, pattern=r"^edit_activity:.+$")]},
+        fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
+    )
+
+    # --- Основной диалог регистрации ---
+    registration_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_registration, pattern="^start_reg$")],
+        states={
+            WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, weight_input)],
+            HEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, height_input)],
+            GENDER: [CallbackQueryHandler(gender_input)],
+            ACTIVITY: [CallbackQueryHandler(activity_input)],
+            TIMEZONE: [
+                CallbackQueryHandler(timezone_input, pattern=r"^(?!other_tz).*$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, timezone_text_input)
+            ],
+            NOTIF_TIME_START: [
+                CallbackQueryHandler(notif_time_start_input, pattern="^standard_time$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, notif_time_start_input)
+            ],
+            NOTIF_TIME_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, notif_time_end_input)],
+            CITY: [
+                CallbackQueryHandler(city_input, pattern="^skip_city$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, city_input)
+            ],
+            CONFIRM: [CallbackQueryHandler(confirm_save, pattern="^confirm_save$")]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+
+    # --- Регистрация команд ---
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("notifications", notifications))
+
+    # --- Мини-диалоги ---
+    application.add_handler(edit_weight_conv)
+    application.add_handler(edit_height_conv)
+    application.add_handler(edit_gender_conv)
+    application.add_handler(edit_activity_conv)
+
+    # --- Регистрация основного диалога и кнопок ---
+    application.add_handler(registration_conv)
+    application.add_handler(CallbackQueryHandler(edit_profile, pattern="^edit_profile$"))
+    application.add_handler(CallbackQueryHandler(handle_water_button, pattern="^drank_water$"))
+    application.add_handler(CallbackQueryHandler(toggle_notifications, pattern="^notif_(enable|disable)$"))
+
+    # --- Сканирующий джоб для ежедневных напоминаний ---
+    application.job_queue.run_repeating(check_and_send_reminders, interval=300)
+
+    # --- Планирование персональных джобов для ОТЧЁТОВ ---
+    # Загружаем всех активных пользователей
+    conn = sqlite3.connect("data/water_bot.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, timezone FROM users WHERE notifications_enabled = 1")
+    users = cursor.fetchall()
+    conn.close()
+
+    for (user_id, tz_str) in users:
+        try:
+            tz = pytz.timezone(tz_str)
+            # Еженедельный отчёт: понедельник в 09:00
+            application.job_queue.run_daily(
+                send_weekly_report,
+                time=time(hour=9, minute=0, tzinfo=tz),
+                days=(0,),  # 0 = понедельник
+                user_id=user_id
+            )
+            # Ежемесячный отчёт: 1-го числа в 09:00
+            application.job_queue.run_monthly(
+                send_monthly_report,
+                when=time(hour=9, minute=0, tzinfo=tz),
+                day=1,
+                user_id=user_id
+            )
+        except Exception as e:
+            # Например, некорректный часовой пояс — пропускаем
+            continue
+
+    # Запуск
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
