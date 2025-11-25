@@ -40,7 +40,7 @@ async def check_and_send_reminders(context: ContextTypes.DEFAULT_TYPE):
             # Получаем погоду
             temp = None
             if user['city']:
-                temp = await get_current_temp(user['city'])  # ← ИСПРАВЛЕНО: вызов get_current_temp
+                temp = get_current_temp(user['city'])  # ← ИСПРАВЛЕНО: вызов get_current_temp
 
             # Считаем норму воды
             norm_ml = calculate_norm(
