@@ -9,7 +9,12 @@ import pytz
 
 class DatabaseManager:
     def __init__(self):
-        pass  # DB_PATH фиксированный — можно не передавать
+        self._init_db()  # ✅ Добавлено
+
+    def _init_db(self):
+        """Инициализация таблиц"""
+        from database.models import init_db
+        init_db()
 
     def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
         conn = sqlite3.connect(DB_PATH)
@@ -44,23 +49,37 @@ class DatabaseManager:
         conn.close()
 
     def add_water_record(self, user_id: int, ml: int = 250) -> None:
-        today = datetime.now().strftime("%Y-%m-%d")
+        """Добавляет запись о выпитой воде с учетом часового пояса пользователя"""
+        user = self.get_user(user_id)
+        if not user:
+            return
+            
+        tz = pytz.timezone(user['timezone'])
+        user_today = datetime.now(tz).strftime("%Y-%m-%d")  # ✅ Исправлено
+        
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO water_logs (user_id, date, ml) VALUES (?, ?, ?)",
-            (user_id, today, ml)
+            (user_id, user_today, ml)
         )
         conn.commit()
         conn.close()
 
     def get_water_today(self, user_id: int) -> int:
-        today = datetime.now().strftime("%Y-%m-%d")
+        """Получает количество выпитой воды сегодня (по времени пользователя)"""
+        user = self.get_user(user_id)
+        if not user:
+            return 0
+            
+        tz = pytz.timezone(user['timezone'])
+        user_today = datetime.now(tz).strftime("%Y-%m-%d")  # ✅ Исправлено
+        
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
             "SELECT SUM(ml) FROM water_logs WHERE user_id = ? AND date = ?",
-            (user_id, today)
+            (user_id, user_today)
         )
         result = cursor.fetchone()[0]
         conn.close()
@@ -151,4 +170,39 @@ class DatabaseManager:
         last = next_month - timedelta(days=1)
         return first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d")
     
-    
+    def is_reminder_sent_today(self, user_id: int, reminder_type: str) -> bool:
+        """Проверяет, было ли уже отправлено уведомление сегодня (по времени пользователя)"""
+        user = self.get_user(user_id)
+        if not user:
+            return False
+            
+        tz = pytz.timezone(user['timezone'])
+        user_today = datetime.now(tz).strftime('%Y-%m-%d')  # ✅ Исправлено
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM sent_reminders WHERE user_id = ? AND date = ? AND reminder_type = ?",
+            (user_id, user_today, reminder_type)
+        )
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count > 0
+
+    def mark_reminder_sent(self, user_id: int, reminder_type: str):
+        """Отмечает уведомление как отправленное (по времени пользователя)"""
+        user = self.get_user(user_id)
+        if not user:
+            return
+            
+        tz = pytz.timezone(user['timezone'])
+        user_today = datetime.now(tz).strftime('%Y-%m-%d')  # ✅ Исправлено
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO sent_reminders (user_id, date, reminder_type) VALUES (?, ?, ?)",
+            (user_id, user_today, reminder_type)
+        )
+        conn.commit()
+        conn.close()

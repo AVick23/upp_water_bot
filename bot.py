@@ -1,3 +1,4 @@
+# bot.py
 import logging
 import warnings
 from telegram.warnings import PTBUserWarning
@@ -13,9 +14,10 @@ from handlers.stats_handler import handle_stats_period
 from handlers.registration_handler import (
     start_registration, weight_input, height_input, gender_input,
     activity_input, timezone_input, timezone_text_input,
-    notif_time_start_input, notif_time_end_input, city_input,
+    notif_time_start_input, notif_time_end_input, city_input, skip_city,
     confirm_save, cancel, WEIGHT, HEIGHT, GENDER, ACTIVITY,
-    TIMEZONE, NOTIF_TIME_START, NOTIF_TIME_END, CITY, CONFIRM
+    TIMEZONE, TIMEZONE_TEXT_INPUT, NOTIF_TIME_START, NOTIF_TIME_END, CITY, CONFIRM
+    # УБРАНЫ обработчики кнопок "Назад"
 )
 
 # Регистрация обработчиков редактирования профиля
@@ -36,7 +38,7 @@ from jobs.reminder_job import check_and_send_reminders
 
 from database.models import init_db
 
-# Подавление предупреждения per_message
+# Подавление предупрежения per_message
 warnings.filterwarnings("ignore", category=PTBUserWarning, message=r".*per_message.*")
 
 # Логирование
@@ -73,7 +75,6 @@ def main():
         fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
     )
 
-    # --- НОВЫЕ Конверсации ---
     edit_timezone_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_edit_timezone, pattern="^edit_timezone$")],
         states={
@@ -100,7 +101,7 @@ def main():
         fallbacks=[CallbackQueryHandler(cancel_edit, pattern="^cancel_edit$")]
     )
 
-    # --- Основной диалог регистрации ---
+    # --- Основной диалог регистрации (УПРОЩЕННЫЙ) ---
     registration_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_registration, pattern="^start_reg$")],
         states={
@@ -112,13 +113,18 @@ def main():
                 CallbackQueryHandler(timezone_input, pattern=r"^(?!other_tz).*$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, timezone_text_input)
             ],
+            TIMEZONE_TEXT_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, timezone_text_input)
+            ],
             NOTIF_TIME_START: [
                 CallbackQueryHandler(notif_time_start_input, pattern="^standard_time$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, notif_time_start_input)
             ],
-            NOTIF_TIME_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, notif_time_end_input)],
+            NOTIF_TIME_END: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, notif_time_end_input)
+            ],
             CITY: [
-                CallbackQueryHandler(city_input, pattern="^skip_city$"),
+                CallbackQueryHandler(skip_city, pattern="^skip_city$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, city_input)
             ],
             CONFIRM: [CallbackQueryHandler(confirm_save, pattern="^confirm_save$")]
@@ -136,9 +142,9 @@ def main():
     application.add_handler(edit_height_conv)
     application.add_handler(edit_gender_conv)
     application.add_handler(edit_activity_conv)
-    application.add_handler(edit_timezone_conv)  # ← НОВОЕ
-    application.add_handler(edit_notifications_conv)  # ← НОВОЕ
-    application.add_handler(edit_city_conv)  # ← НОВОЕ
+    application.add_handler(edit_timezone_conv)
+    application.add_handler(edit_notifications_conv)
+    application.add_handler(edit_city_conv)
 
     # --- Регистрация основного диалога и кнопок ---
     application.add_handler(registration_conv)
