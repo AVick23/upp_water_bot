@@ -77,11 +77,34 @@ class ActivityMode(str, Enum):
     VACATION = "vacation"  # Reduced norm
 
 class DrinkType(str, Enum):
-    WATER = "water"       # coefficient 1.0
-    TEA = "tea"           # coefficient 0.9
-    COFFEE = "coffee"     # coefficient 0.8
-    JUICE = "juice"       # coefficient 0.7
-    SODA = "soda"         # coefficient 0.5
+    # === ВОДА ===
+    WATER = "water"               # coefficient 1.0
+    SPARKLING_WATER = "sparkling" # coefficient 1.0
+    MINERAL_WATER = "mineral"     # coefficient 1.0
+    
+    # === ЧАЙ ===
+    TEA_BLACK = "tea_black"       # coefficient 0.9
+    TEA_GREEN = "tea_green"       # coefficient 0.95 (больше воды)
+    TEA_HERBAL = "tea_herbal"     # coefficient 0.95
+    TEA_WITH_MILK = "tea_milk"    # coefficient 0.85 (с молоком)
+    MATCHA = "matcha"             # coefficient 0.8
+    
+    # === КОФЕ ===
+    ESPRESSO = "espresso"         # coefficient 0.7 (крепкий, мало воды)
+    AMERICANO = "americano"       # coefficient 0.85 (много воды)
+    CAPPUCCINO = "cappuccino"     # coefficient 0.75 (молоко 1:1)
+    LATTE = "latte"               # coefficient 0.7 (много молока)
+    FLAT_WHITE = "flat_white"     # coefficient 0.72
+    MOCHA = "mocha"               # coefficient 0.65 (шоколад + молоко)
+    ICED_COFFEE = "iced_coffee"   # coefficient 0.8
+    COLD_BREW = "cold_brew"       # coefficient 0.9 (меньше кофеина)
+    
+    # === ДРУГИЕ НАПИТКИ ===
+    JUICE = "juice"               # coefficient 0.7
+    SMOOTHIE = "smoothie"         # coefficient 0.75
+    MILK = "milk"                 # coefficient 0.85
+    SODA = "soda"                 # coefficient 0.5
+    ENERGY_DRINK = "energy"       # coefficient 0.4
 
 class AchievementType(str, Enum):
     # === СЕРИИ ДНЕЙ (Streaks) ===
@@ -167,11 +190,58 @@ class AchievementType(str, Enum):
 # ============================================================================
 
 DRINK_COEFFICIENTS: Dict[DrinkType, float] = {
+    # === ВОДА ===
     DrinkType.WATER: 1.0,
-    DrinkType.TEA: 0.9,
-    DrinkType.COFFEE: 0.8,
+    DrinkType.SPARKLING_WATER: 1.0,
+    DrinkType.MINERAL_WATER: 1.0,
+    
+    # === ЧАЙ ===
+    DrinkType.TEA_BLACK: 0.9,
+    DrinkType.TEA_GREEN: 0.95,
+    DrinkType.TEA_HERBAL: 0.95,
+    DrinkType.TEA_WITH_MILK: 0.85,
+    DrinkType.MATCHA: 0.8,
+    
+    # === КОФЕ ===
+    DrinkType.ESPRESSO: 0.7,
+    DrinkType.AMERICANO: 0.85,
+    DrinkType.CAPPUCCINO: 0.75,
+    DrinkType.LATTE: 0.7,
+    DrinkType.FLAT_WHITE: 0.72,
+    DrinkType.MOCHA: 0.65,
+    DrinkType.ICED_COFFEE: 0.8,
+    DrinkType.COLD_BREW: 0.9,
+    
+    # === ДРУГИЕ ===
     DrinkType.JUICE: 0.7,
+    DrinkType.SMOOTHIE: 0.75,
+    DrinkType.MILK: 0.85,
     DrinkType.SODA: 0.5,
+    DrinkType.ENERGY_DRINK: 0.4,
+}
+
+# Группы напитков для клавиатуры
+DRINK_CATEGORIES = {
+    "water": {
+        "name_ru": "💧 Вода",
+        "name_en": "💧 Water",
+        "drinks": [DrinkType.WATER, DrinkType.SPARKLING_WATER, DrinkType.MINERAL_WATER]
+    },
+    "tea": {
+        "name_ru": "🍵 Чай",
+        "name_en": "🍵 Tea",
+        "drinks": [DrinkType.TEA_BLACK, DrinkType.TEA_GREEN, DrinkType.TEA_HERBAL, DrinkType.TEA_WITH_MILK, DrinkType.MATCHA]
+    },
+    "coffee": {
+        "name_ru": "☕ Кофе",
+        "name_en": "☕ Coffee",
+        "drinks": [DrinkType.ESPRESSO, DrinkType.AMERICANO, DrinkType.CAPPUCCINO, DrinkType.LATTE, DrinkType.FLAT_WHITE, DrinkType.MOCHA, DrinkType.ICED_COFFEE, DrinkType.COLD_BREW]
+    },
+    "other": {
+        "name_ru": "🥤 Другое",
+        "name_en": "🥤 Other",
+        "drinks": [DrinkType.JUICE, DrinkType.SMOOTHIE, DrinkType.MILK, DrinkType.SODA, DrinkType.ENERGY_DRINK]
+    }
 }
 
 # ============================================================================
