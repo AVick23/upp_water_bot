@@ -337,7 +337,8 @@ async def cb_drink_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await send_main_menu(update, context)
     
     if data.startswith("drink_"):
-        drink_type_str = data.split("_")[1]
+        # Используем maxsplit=1, так как типы напитков содержат underscore (tea_black, flat_white и т.д.)
+        drink_type_str = data.split("_", 1)[1]
         drink_type = DrinkType(drink_type_str)
         volume = context.user_data.get("pending_volume", 250)
         coefficient = DRINK_COEFFICIENTS.get(drink_type, 1.0)
@@ -901,7 +902,17 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # SCHEDULED JOBS
 # ============================================================================
 
+def get_notification_keyboard(lang: str = "ru"):
+    """Клавиатура для уведомлений с кнопкой 'Добавить напиток'"""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    keyboard = [
+        [InlineKeyboardButton(Locale.get("main_add_water", lang), callback_data="add_water")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
+    """Утреннее уведомление в 8:00"""
     from database import get_session
     from models import User
     
@@ -924,9 +935,79 @@ async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
                 
                 goal_ml = get_user_daily_norm(user.id)
                 text = L["notif_morning"].format(weather=weather_text or ("нет данных" if lang == "ru" else "N/A"), norm=goal_ml)
-                await context.bot.send_message(user.id, text)
+                
+                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
+                keyboard = get_notification_keyboard(lang)
+                await context.bot.send_message(user.id, text, reply_markup=keyboard)
             except Exception as e:
-                logger.error(f"Failed to send notification to {user.id}: {e}")
+                logger.error(f"Failed to send morning notification to {user.id}: {e}")
+    finally:
+        session.close()
+
+
+async def job_reminder_notification(context: ContextTypes.DEFAULT_TYPE):
+    """Регулярные напоминания о воде в течение дня (каждые 2 часа с 10:00 до 20:00)"""
+    from database import get_session
+    from models import User
+    
+    session = get_session()
+    try:
+        users = session.query(User).filter(
+            User.notifications_enabled == True, User.registration_complete == True
+        ).all()
+        
+        for user in users:
+            try:
+                # Проверяем, не достиг ли пользователь нормы
+                today_ml = get_today_total(user.id)
+                goal_ml = get_user_daily_norm(user.id)
+                remaining = max(0, goal_ml - today_ml)
+                
+                # Если норма уже выполнена, пропускаем напоминание
+                if remaining <= 0:
+                    continue
+                
+                lang = user.language or "ru"
+                L = Locale.RU if lang == "ru" else Locale.EN
+                
+                text = L["notif_reminder"].format(remaining=remaining)
+                
+                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
+                keyboard = get_notification_keyboard(lang)
+                await context.bot.send_message(user.id, text, reply_markup=keyboard)
+            except Exception as e:
+                logger.error(f"Failed to send reminder notification to {user.id}: {e}")
+    finally:
+        session.close()
+
+
+async def job_evening_notification(context: ContextTypes.DEFAULT_TYPE):
+    """Вечерний отчёт о выполнении нормы в 21:00"""
+    from database import get_session
+    from models import User
+    
+    session = get_session()
+    try:
+        users = session.query(User).filter(
+            User.notifications_enabled == True, User.registration_complete == True
+        ).all()
+        
+        for user in users:
+            try:
+                today_ml = get_today_total(user.id)
+                goal_ml = get_user_daily_norm(user.id)
+                percent = min(100, round((today_ml / goal_ml) * 100) if goal_ml > 0 else 0)
+                
+                lang = user.language or "ru"
+                L = Locale.RU if lang == "ru" else Locale.EN
+                
+                text = L["notif_evening"].format(current=today_ml, goal=goal_ml, percent=percent)
+                
+                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
+                keyboard = get_notification_keyboard(lang)
+                await context.bot.send_message(user.id, text, reply_markup=keyboard)
+            except Exception as e:
+                logger.error(f"Failed to send evening notification to {user.id}: {e}")
     finally:
         session.close()
 
@@ -1008,8 +1089,29 @@ def main():
     # Job queue
     job_queue = application.job_queue
     if job_queue:
-        job_queue.run_daily(job_morning_notification, time=datetime.strptime("08:00", "%H:%M").time(), days=(0,1,2,3,4,5,6))
-        logger.info("JobQueue initialized")
+        # Утреннее уведомление в 8:00
+        job_queue.run_daily(
+            job_morning_notification, 
+            time=datetime.strptime("08:00", "%H:%M").time(), 
+            days=(0,1,2,3,4,5,6)
+        )
+        
+        # Регулярные напоминания каждые 2 часа: 10:00, 12:00, 14:00, 16:00, 18:00, 20:00
+        for hour in [10, 12, 14, 16, 18, 20]:
+            job_queue.run_daily(
+                job_reminder_notification,
+                time=datetime.strptime(f"{hour:02d}:00", "%H:%M").time(),
+                days=(0,1,2,3,4,5,6)
+            )
+        
+        # Вечерний отчёт в 21:00
+        job_queue.run_daily(
+            job_evening_notification,
+            time=datetime.strptime("21:00", "%H:%M").time(),
+            days=(0,1,2,3,4,5,6)
+        )
+        
+        logger.info("JobQueue initialized with morning, reminder (6 times/day), and evening notifications")
     else:
         logger.warning("JobQueue not available")
     

@@ -151,6 +151,7 @@ class AchievementType(str, Enum):
     FIRST_MONTH = "first_month"
     COMEBACK = "comeback"
     TRAVELER = "traveler"
+    VARIETY_KING = "variety_king"
 
 # ============================================================================
 # DRINK COEFFICIENTS
@@ -245,6 +246,7 @@ ACHIEVEMENTS = {
     AchievementType.FIRST_MONTH: {"emoji": "🌟", "xp": 500, "rarity": "rare"},
     AchievementType.COMEBACK: {"emoji": "💪", "xp": 100, "rarity": "uncommon"},
     AchievementType.TRAVELER: {"emoji": "✈️", "xp": 300, "rarity": "epic"},
+    AchievementType.VARIETY_KING: {"emoji": "👑", "xp": 200, "rarity": "rare"},
 }
 
 RARITY_COLORS = {
@@ -427,6 +429,7 @@ class Locale:
         "ach_first_month": "🌟 Первый месяц",
         "ach_comeback": "💪 Возвращение героя",
         "ach_traveler": "✈️ Путешественник",
+        "ach_variety_king": "👑 Король разнообразия",
         
         # Rarity
         "rarity_common": "⚪ Обычное",
@@ -627,6 +630,7 @@ class Locale:
         "ach_first_month": "🌟 First Month",
         "ach_comeback": "💪 Hero's Return",
         "ach_traveler": "✈️ Traveler",
+        "ach_variety_king": "👑 Variety King",
         
         # Rarity
         "rarity_common": "⚪ Common",
