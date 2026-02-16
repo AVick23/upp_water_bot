@@ -343,6 +343,7 @@ class Locale:
         # Settings
         "settings_profile": "👤 Профиль",
         "settings_notifications": "🔔 Уведомления",
+        "settings_timezone": "🌍 Часовой пояс",
         "settings_mode": "🎭 Режим",
         "settings_language": "🌐 Язык",
         "settings_export": "📤 Экспорт данных",
@@ -359,6 +360,10 @@ class Locale:
         "profile_edit_height": "Введите новый рост (100-250 см):",
         "profile_edit_city": "Введите город или 'del' для удаления:",
         "profile_updated": "✅ Профиль обновлён!",
+        
+        # Timezone
+        "tz_select": "🌍 Выберите часовой пояс:",
+        "tz_updated": "✅ Часовой пояс обновлён!",
         
         # Activity modes
         "mode_normal": "😊 Обычный",
@@ -544,6 +549,7 @@ class Locale:
         # Settings
         "settings_profile": "👤 Profile",
         "settings_notifications": "🔔 Notifications",
+        "settings_timezone": "🌍 Timezone",
         "settings_mode": "🎭 Mode",
         "settings_language": "🌐 Language",
         "settings_export": "📤 Export data",
@@ -560,6 +566,10 @@ class Locale:
         "profile_edit_height": "Enter new height (100-250 cm):",
         "profile_edit_city": "Enter city or 'del' to remove:",
         "profile_updated": "✅ Profile updated!",
+        
+        # Timezone
+        "tz_select": "🌍 Select your timezone:",
+        "tz_updated": "✅ Timezone updated!",
         
         # Activity modes
         "mode_normal": "😊 Normal",
@@ -761,6 +771,7 @@ def get_settings_keyboard(lang: str = "ru"):
     keyboard = [
         [InlineKeyboardButton(Locale.get("settings_profile", lang), callback_data="settings_profile")],
         [InlineKeyboardButton(Locale.get("settings_notifications", lang), callback_data="settings_notifications")],
+        [InlineKeyboardButton(Locale.get("settings_timezone", lang), callback_data="settings_timezone")],
         [InlineKeyboardButton(Locale.get("settings_mode", lang), callback_data="settings_mode")],
         [InlineKeyboardButton(Locale.get("settings_language", lang), callback_data="settings_language")],
         [InlineKeyboardButton(Locale.get("settings_export", lang), callback_data="settings_export")],
@@ -868,4 +879,51 @@ def get_activity_keyboard(lang: str = "ru"):
 def get_back_keyboard(lang: str = "ru", callback_data: str = "main_menu"):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     keyboard = [[InlineKeyboardButton(Locale.get("btn_back", lang), callback_data=callback_data)]]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_timezone_keyboard(lang: str = "ru"):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    
+    # Список популярных часовых поясов
+    timezones = [
+        ("UTC-12:00", "Etc/GMT+12"),
+        ("UTC-11:00", "Etc/GMT+11"),
+        ("UTC-10:00", "Pacific/Honolulu"),
+        ("UTC-09:00", "America/Anchorage"),
+        ("UTC-08:00", "America/Los_Angeles"),
+        ("UTC-07:00", "America/Denver"),
+        ("UTC-06:00", "America/Chicago"),
+        ("UTC-05:00", "America/New_York"),
+        ("UTC-04:00", "America/Caracas"),
+        ("UTC-03:00", "America/Sao_Paulo"),
+        ("UTC-02:00", "Etc/GMT+2"),
+        ("UTC-01:00", "Atlantic/Azores"),
+        ("UTC+00:00", "UTC"),
+        ("UTC+01:00", "Europe/London"),
+        ("UTC+02:00", "Europe/Berlin"),
+        ("UTC+03:00", "Europe/Moscow"),
+        ("UTC+04:00", "Europe/Samara"),
+        ("UTC+05:00", "Asia/Yekaterinburg"),
+        ("UTC+06:00", "Asia/Almaty"),
+        ("UTC+07:00", "Asia/Bangkok"),
+        ("UTC+08:00", "Asia/Singapore"),
+        ("UTC+09:00", "Asia/Tokyo"),
+        ("UTC+10:00", "Australia/Sydney"),
+        ("UTC+11:00", "Pacific/Noumea"),
+        ("UTC+12:00", "Pacific/Auckland"),
+    ]
+
+    keyboard = []
+    row = []
+    for label, tz_name in timezones:
+        row.append(InlineKeyboardButton(label, callback_data=f"tz_{tz_name}"))
+        if len(row) == 3:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton(Locale.get("btn_back", lang), callback_data="settings")])
+    
     return InlineKeyboardMarkup(keyboard)

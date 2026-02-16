@@ -30,7 +30,7 @@ from config import (
     get_water_keyboard, get_drink_category_keyboard, get_drink_type_keyboard, 
     get_main_keyboard, get_settings_keyboard, get_profile_keyboard, get_mode_keyboard, 
     get_stats_keyboard, get_language_keyboard, get_export_keyboard, get_gender_keyboard,
-    get_activity_keyboard, get_back_keyboard
+    get_activity_keyboard, get_back_keyboard, get_timezone_keyboard
 )
 from models import init_db
 from database import (
@@ -216,7 +216,8 @@ async def process_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     activity_str = update.callback_query.data.split("_")[1]
     activity = ActivityLevel(activity_str)
-    update_user(user_id, activity_level=activity, timezone="Europe/Moscow" if lang == "ru" else "UTC")
+    # Устанавливаем дефолтный UTC, потом пользователь сам выберет
+    update_user(user_id, activity_level=activity, timezone="UTC")
     
     L = Locale.RU if lang == "ru" else Locale.EN
     keyboard = InlineKeyboardMarkup([
@@ -764,7 +765,7 @@ async def cb_set_notif_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard_rows = []
     row = []
-    for hour in range(6, 24):
+    for hour in range(0, 24):
         row.append(InlineKeyboardButton(f"{hour:02d}:00", callback_data=f"notif_time_{time_type}_{hour}"))
         if len(row) == 4:
             keyboard_rows.append(row)
@@ -796,6 +797,32 @@ async def cb_save_notif_time(update: Update, context: ContextTypes.DEFAULT_TYPE)
         update_user(user_id, notification_end=hour)
     
     return await cb_settings_notifications(update, context)
+
+
+async def cb_settings_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = get_lang(update)
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text(
+        Locale.get("tz_select", lang), reply_markup=get_timezone_keyboard(lang)
+    )
+
+
+async def cb_set_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = get_lang(update)
+    L = Locale.RU if lang == "ru" else Locale.EN
+    
+    await update.callback_query.answer()
+    
+    data = update.callback_query.data
+    if data.startswith("tz_"):
+        tz_name = data[3:] # Убираем префикс tz_
+        update_user(user_id, timezone=tz_name)
+        
+        await update.callback_query.edit_message_text(
+            L["tz_updated"], 
+            reply_markup=get_back_keyboard(lang, "settings")
+        )
 
 
 async def cb_settings_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -899,7 +926,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================================
-# SCHEDULED JOBS
+# SCHEDULED JOBS (NEW LOGIC)
 # ============================================================================
 
 def get_notification_keyboard(lang: str = "ru"):
@@ -911,105 +938,142 @@ def get_notification_keyboard(lang: str = "ru"):
     return InlineKeyboardMarkup(keyboard)
 
 
-async def job_morning_notification(context: ContextTypes.DEFAULT_TYPE):
-    """Утреннее уведомление в 8:00"""
+async def job_minute_check(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Запускается каждую минуту.
+    Проверяет всех пользователей, вычисляет их локальное время.
+    Если локальное время попадает в окно (Целевое время ± 2 минуты) — отправляет уведомление.
+    """
     from database import get_session
     from models import User
-    
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    # Кэш для хранения отметок "уже отправлено", чтобы не слать дубликаты в течение 4 минут
+    # Формат: { (user_id, 'morning', '2023-10-27'): True }
+    sent_cache = context.bot_data.setdefault('sent_notifications', set())
+
     session = get_session()
     try:
+        # Берем только пользователей с включенными уведомлениями
         users = session.query(User).filter(
-            User.notifications_enabled == True, User.registration_complete == True
+            User.notifications_enabled == True,
+            User.registration_complete == True
         ).all()
-        
+
+        now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+
         for user in users:
             try:
-                lang = user.language or "ru"
-                L = Locale.RU if lang == "ru" else Locale.EN
+                # 1. Определяем локальное время пользователя
+                try:
+                    tz = ZoneInfo(user.timezone or "UTC")
+                except Exception:
+                    tz = ZoneInfo("UTC")
                 
-                weather_text = ""
-                if user.city:
-                    weather = await weather_service.get_weather(user.city)
-                    if weather:
-                        weather_text = f"{weather.temperature:.0f}°C, {weather.description}"
-                
-                goal_ml = get_user_daily_norm(user.id)
-                text = L["notif_morning"].format(weather=weather_text or ("нет данных" if lang == "ru" else "N/A"), norm=goal_ml)
-                
-                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
-                keyboard = get_notification_keyboard(lang)
-                await context.bot.send_message(user.id, text, reply_markup=keyboard)
-            except Exception as e:
-                logger.error(f"Failed to send morning notification to {user.id}: {e}")
-    finally:
-        session.close()
-
-
-async def job_reminder_notification(context: ContextTypes.DEFAULT_TYPE):
-    """Регулярные напоминания о воде в течение дня (каждые 2 часа с 10:00 до 20:00)"""
-    from database import get_session
-    from models import User
-    
-    session = get_session()
-    try:
-        users = session.query(User).filter(
-            User.notifications_enabled == True, User.registration_complete == True
-        ).all()
-        
-        for user in users:
-            try:
-                # Проверяем, не достиг ли пользователь нормы
-                today_ml = get_today_total(user.id)
-                goal_ml = get_user_daily_norm(user.id)
-                remaining = max(0, goal_ml - today_ml)
-                
-                # Если норма уже выполнена, пропускаем напоминание
-                if remaining <= 0:
-                    continue
+                local_now = now_utc.astimezone(tz)
+                local_time = local_now.time()
+                local_date_str = local_now.strftime("%Y-%m-%d")
                 
                 lang = user.language or "ru"
                 L = Locale.RU if lang == "ru" else Locale.EN
                 
-                text = L["notif_reminder"].format(remaining=remaining)
-                
-                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
-                keyboard = get_notification_keyboard(lang)
-                await context.bot.send_message(user.id, text, reply_markup=keyboard)
+                # Список событий, которые нужно проверить для этого пользователя
+                # Формат: (имя_события, целевой_час, целевая_минута)
+                events_to_check = []
+
+                # 1. Утреннее уведомление (время старта)
+                events_to_check.append(("morning", user.notification_start, 0))
+
+                # 2. Вечерний отчет (за час до конца или в 21:00)
+                evening_hour = user.notification_end - 1
+                if evening_hour < user.notification_start:
+                    evening_hour = 21
+                events_to_check.append(("evening", evening_hour, 0))
+
+                # 3. Напоминания (каждые 2 часа после старта)
+                # Например, старт 8. Напоминания: 10, 12, 14...
+                rem_h = user.notification_start + 2
+                while rem_h < evening_hour:
+                    events_to_check.append((f"reminder_{rem_h}", rem_h, 0))
+                    rem_h += 2
+
+                # Проверяем каждое событие
+                for event_name, target_hour, target_minute in events_to_check:
+                    target_time = datetime(local_now.year, local_now.month, local_now.day, target_hour, target_minute, 0, tzinfo=tz).time()
+                    
+                    # Вычисляем разницу во времени
+                    current_minutes = local_time.hour * 60 + local_time.minute
+                    target_minutes = target_time.hour * 60 + target_time.minute
+                    
+                    # Окно: ± 2 минуты (от -2 до +2)
+                    diff = current_minutes - target_minutes
+                    
+                    if -2 <= diff <= 2:
+                        # Ключ для кэша (уникальный для каждого события в день)
+                        cache_key = (user.id, event_name, local_date_str)
+                        
+                        if cache_key not in sent_cache:
+                            # Отправляем уведомление
+                            await process_notification_event(user, event_name, context, lang, L)
+                            
+                            # Ставим отметку, что отправили
+                            sent_cache.add(cache_key)
+
             except Exception as e:
-                logger.error(f"Failed to send reminder notification to {user.id}: {e}")
+                logger.error(f"Error checking notifications for user {user.id}: {e}")
+
+        # Чистим старые записи из кэша (раз в час), чтобы память не засорялась
+        if now_utc.minute == 0:
+            # Удаляем ключи, которые не относятся к текущему дню (упрощенно)
+            context.bot_data['sent_notifications'] = {
+                k for k in sent_cache if local_date_str in str(k)
+            }
+
     finally:
         session.close()
 
 
-async def job_evening_notification(context: ContextTypes.DEFAULT_TYPE):
-    """Вечерний отчёт о выполнении нормы в 21:00"""
-    from database import get_session
-    from models import User
-    
-    session = get_session()
+async def process_notification_event(user, event_name: str, context: ContextTypes.DEFAULT_TYPE, lang: str, L: Dict):
+    """Вспомогательная функция отправки конкретного уведомления"""
     try:
-        users = session.query(User).filter(
-            User.notifications_enabled == True, User.registration_complete == True
-        ).all()
+        text = ""
         
-        for user in users:
-            try:
-                today_ml = get_today_total(user.id)
-                goal_ml = get_user_daily_norm(user.id)
-                percent = min(100, round((today_ml / goal_ml) * 100) if goal_ml > 0 else 0)
-                
-                lang = user.language or "ru"
-                L = Locale.RU if lang == "ru" else Locale.EN
-                
-                text = L["notif_evening"].format(current=today_ml, goal=goal_ml, percent=percent)
-                
-                # Добавляем inline-клавиатуру с кнопкой "Добавить напиток"
-                keyboard = get_notification_keyboard(lang)
-                await context.bot.send_message(user.id, text, reply_markup=keyboard)
-            except Exception as e:
-                logger.error(f"Failed to send evening notification to {user.id}: {e}")
-    finally:
-        session.close()
+        # Логика для разных типов уведомлений
+        if event_name == "morning":
+            today_ml = get_today_total(user.id)
+            goal_ml = get_user_daily_norm(user.id)
+            weather_text = ""
+            if user.city:
+                weather = await weather_service.get_weather(user.city)
+                if weather:
+                    weather_text = f"{weather.temperature:.0f}°C, {weather.description}"
+            
+            text = L["notif_morning"].format(weather=weather_text or ("нет данных" if lang == "ru" else "N/A"), norm=goal_ml)
+
+        elif event_name == "evening":
+            today_ml = get_today_total(user.id)
+            goal_ml = get_user_daily_norm(user.id)
+            percent = min(100, round((today_ml / goal_ml) * 100) if goal_ml > 0 else 0)
+            text = L["notif_evening"].format(current=today_ml, goal=goal_ml, percent=percent)
+
+        elif event_name.startswith("reminder_"):
+            today_ml = get_today_total(user.id)
+            goal_ml = get_user_daily_norm(user.id)
+            remaining = max(0, goal_ml - today_ml)
+            
+            if remaining <= 0:
+                return # Не шлем напоминание, если норма выполнена
+            
+            text = L["notif_reminder"].format(remaining=remaining)
+        
+        # Отправка
+        if text:
+            keyboard = get_notification_keyboard(lang)
+            await context.bot.send_message(user.id, text, reply_markup=keyboard)
+            
+    except Exception as e:
+        logger.error(f"Failed to send notification {event_name} to user {user.id}: {e}")
 
 
 # ============================================================================
@@ -1076,6 +1140,8 @@ def main():
     application.add_handler(CallbackQueryHandler(cb_toggle_notifications, pattern="^toggle_notifications$"))
     application.add_handler(CallbackQueryHandler(cb_set_notif_time, pattern="^set_notif_"))
     application.add_handler(CallbackQueryHandler(cb_save_notif_time, pattern="^notif_time_"))
+    application.add_handler(CallbackQueryHandler(cb_settings_timezone, pattern="^settings_timezone$"))
+    application.add_handler(CallbackQueryHandler(cb_set_timezone, pattern="^tz_"))
     application.add_handler(CallbackQueryHandler(cb_settings_mode, pattern="^settings_mode$"))
     application.add_handler(CallbackQueryHandler(cb_set_mode, pattern="^mode_"))
     application.add_handler(CallbackQueryHandler(cb_settings_language, pattern="^settings_language$"))
@@ -1089,29 +1155,14 @@ def main():
     # Job queue
     job_queue = application.job_queue
     if job_queue:
-        # Утреннее уведомление в 8:00
-        job_queue.run_daily(
-            job_morning_notification, 
-            time=datetime.strptime("08:00", "%H:%M").time(), 
-            days=(0,1,2,3,4,5,6)
+        # Запускаем проверку каждую минуту
+        # first=1 означает задержку в 1 секунду перед первым запуском
+        job_queue.run_repeating(
+            job_minute_check, 
+            interval=60, # Каждые 60 секунд
+            first=1
         )
-        
-        # Регулярные напоминания каждые 2 часа: 10:00, 12:00, 14:00, 16:00, 18:00, 20:00
-        for hour in [10, 12, 14, 16, 18, 20]:
-            job_queue.run_daily(
-                job_reminder_notification,
-                time=datetime.strptime(f"{hour:02d}:00", "%H:%M").time(),
-                days=(0,1,2,3,4,5,6)
-            )
-        
-        # Вечерний отчёт в 21:00
-        job_queue.run_daily(
-            job_evening_notification,
-            time=datetime.strptime("21:00", "%H:%M").time(),
-            days=(0,1,2,3,4,5,6)
-        )
-        
-        logger.info("JobQueue initialized with morning, reminder (6 times/day), and evening notifications")
+        logger.info("JobQueue initialized with minute checks (timezone-aware, fuzzy window ±2 min)")
     else:
         logger.warning("JobQueue not available")
     
