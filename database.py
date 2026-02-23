@@ -16,7 +16,7 @@ from models import (
 )
 from config import (
     Gender, ActivityLevel, ActivityMode, DrinkType, AchievementType,
-    DRINK_COEFFICIENTS, WATER_PRESETS, ACHIEVEMENTS
+    DRINK_COEFFICIENTS, WATER_PRESETS, ACHIEVEMENTS, config
 )
 
 
@@ -493,39 +493,57 @@ def mark_insights_read(user_id: int):
 
 
 # ============================================================================
-# NOTIFICATION SCHEDULE CRUD
+# NOTIFICATION SCHEDULE CRUD (NEW/ENHANCED)
 # ============================================================================
+
+def delete_future_notifications(user_id: int):
+    """
+    Delete all unsent notifications for a user that are scheduled in the future.
+    """
+    with get_db() as db:
+        db.query(NotificationSchedule).filter(
+            NotificationSchedule.user_id == user_id,
+            NotificationSchedule.is_sent == False,
+            NotificationSchedule.scheduled_time > datetime.utcnow()
+        ).delete(synchronize_session=False)
+        db.commit()
+
 
 def schedule_notification(
     user_id: int,
     notification_type: str,
-    scheduled_time: datetime
+    scheduled_utc: datetime,
+    context: dict = None
 ) -> NotificationSchedule:
-    """Schedule a notification"""
+    """Create a new scheduled notification."""
     with get_db() as db:
         notif = NotificationSchedule(
             user_id=user_id,
             notification_type=notification_type,
-            scheduled_time=scheduled_time
+            scheduled_time=scheduled_utc,
+            context=json.dumps(context) if context else None
         )
         db.add(notif)
-        db.flush()
+        db.commit()
+        db.refresh(notif)
         return notif
 
 
-def get_pending_notifications() -> List[NotificationSchedule]:
-    """Get all pending notifications that should be sent now"""
+def get_pending_notifications(limit: int = 100) -> List[NotificationSchedule]:
+    """Get all pending notifications that should be sent now or in the next minute."""
     with get_db() as db:
+        now = datetime.utcnow()
+        # Берём с небольшим запасом вперёд, чтобы не пропустить из-за задержек
         return db.query(NotificationSchedule).filter(
             and_(
                 NotificationSchedule.is_sent == False,
-                NotificationSchedule.scheduled_time <= datetime.utcnow()
+                NotificationSchedule.scheduled_time <= now + timedelta(minutes=1)
             )
-        ).all()
+        ).limit(limit).all()
 
 
 def mark_notification_sent(notification_id: int):
-    """Mark notification as sent"""
+    """Mark a specific notification as sent."""
     with get_db() as db:
         db.query(NotificationSchedule).filter(
             NotificationSchedule.id == notification_id
@@ -533,6 +551,159 @@ def mark_notification_sent(notification_id: int):
             "is_sent": True,
             "sent_at": datetime.utcnow()
         })
+        db.commit()
+
+
+# ============================================================================
+# SMART NOTIFICATION RESCHEDULING (CORE LOGIC)
+# ============================================================================
+
+def reschedule_smart_notifications(user_id: int):
+    """
+    Recalculate and recreate all smart reminders for a user
+    based on current goal, progress, and notification window.
+    """
+    # Импортируем здесь, чтобы избежать циклического импорта
+    from services import get_user_daily_norm, get_today_total
+    from zoneinfo import ZoneInfo
+    import math
+
+    user = get_user(user_id)
+    if not user or not user.notifications_enabled:
+        delete_future_notifications(user_id)
+        return
+
+    # 1. Получаем локальное время пользователя
+    try:
+        tz = ZoneInfo(user.timezone or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local_now = datetime.now(tz)
+    local_minutes_now = local_now.hour * 60 + local_now.minute
+
+    # 2. Границы окна (минуты от полуночи)
+    start_min = user.notification_start_minutes or 480
+    end_min = user.notification_end_minutes or 1320
+
+    # Если текущее время уже после окончания окна – сегодня уведомлений не будет
+    if local_minutes_now >= end_min:
+        delete_future_notifications(user_id)
+        return
+
+    # 3. Эффективное начало отсчёта (не раньше начала окна и не раньше текущего времени)
+    effective_start = max(local_minutes_now, start_min)
+
+    # 4. Получаем норму и уже выпитое
+    goal = get_user_daily_norm(user_id)
+    today_total = get_today_total(user_id)
+    remaining = max(0, goal - today_total)
+
+    if remaining <= 0:
+        delete_future_notifications(user_id)
+        return
+
+    # 5. Количество стаканов (по 250 мл)
+    glasses = math.ceil(remaining / 250)
+
+    # 6. Оставшееся время в окне (в минутах)
+    remaining_minutes = end_min - effective_start
+    if remaining_minutes <= 0:
+        delete_future_notifications(user_id)
+        return
+
+    # 7. Интервал между напоминаниями (равномерно распределяем)
+    interval = remaining_minutes / glasses
+
+    # 8. Удаляем старые будущие уведомления
+    delete_future_notifications(user_id)
+
+    # 9. Создаём новые
+    for i in range(glasses):
+        # Время в локальных минутах с начала суток (i+1 – первое не сразу, а через interval)
+        remind_local_minutes = effective_start + (i + 1) * interval
+        if remind_local_minutes >= end_min:
+            remind_local_minutes = end_min - 1  # чуть раньше конца, чтобы точно попасть в окно
+
+        # Преобразуем в datetime (локальное)
+        remind_local_dt = local_now.replace(
+            hour=int(remind_local_minutes // 60),
+            minute=int(remind_local_minutes % 60),
+            second=0, microsecond=0
+        )
+        # Если полученное время меньше текущего (может случиться из-за округлений), пропускаем
+        if remind_local_dt <= local_now:
+            continue
+
+        # Конвертируем в UTC
+        remind_utc = remind_local_dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+        # Контекст для персонализации
+        context = {
+            "glass_number": i + 1,
+            "total_glasses": glasses,
+            "remaining_ml": max(0, remaining - (i * 250))  # приблизительно, для сообщения
+        }
+
+        schedule_notification(user_id, "smart_reminder", remind_utc, context)
+
+
+# ============================================================================
+# MIGRATION: UPDATE LEGACY USERS TO MINUTE-BASED NOTIFICATION TIMES
+# ============================================================================
+
+def migrate_legacy_notification_times():
+    """
+    One-time migration: for users who have notification_start_minutes NULL,
+    fill them from notification_start/notification_end (hour * 60).
+    """
+    with get_db() as db:
+        users_to_update = db.query(User).filter(
+            User.notification_start_minutes.is_(None),
+            User.notification_start.isnot(None)
+        ).all()
+        for user in users_to_update:
+            user.notification_start_minutes = user.notification_start * 60
+            user.notification_end_minutes = user.notification_end * 60
+        if users_to_update:
+            db.commit()
+            print(f"✅ Migrated {len(users_to_update)} users to minute-based notification times.")
+
+
+# ============================================================================
+# FAVORITE VOLUMES
+# ============================================================================
+
+def get_favorite_volumes(user_id: int) -> List[int]:
+    """Get user's favorite custom volumes"""
+    user = get_user(user_id)
+    if not user or not user.favorite_volumes:
+        return []
+    
+    try:
+        return json.loads(user.favorite_volumes)
+    except:
+        return []
+
+
+def add_favorite_volume(user_id: int, volume: int) -> List[int]:
+    """Add a volume to favorites"""
+    from config import MAX_CUSTOM_FAVORITES
+    
+    with get_db() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return []
+        
+        favorites = get_favorite_volumes(user_id)
+        
+        if volume not in favorites and volume not in WATER_PRESETS:
+            favorites.append(volume)
+            # Keep only last N favorites
+            favorites = favorites[-MAX_CUSTOM_FAVORITES:]
+            user.favorite_volumes = json.dumps(favorites)
+        
+        db.flush()
+        return favorites
 
 
 # ============================================================================
@@ -569,6 +740,8 @@ def export_to_dict(user_id: int) -> Dict[str, Any]:
             "level": user.level,
             "xp": user.xp,
             "created_at": user.created_at.isoformat() if user.created_at else None,
+            "notification_start_minutes": user.notification_start_minutes,
+            "notification_end_minutes": user.notification_end_minutes,
         },
         "water_logs": [
             {
@@ -621,48 +794,12 @@ def export_to_csv(user_id: int) -> str:
 
 
 # ============================================================================
-# FAVORITE VOLUMES
-# ============================================================================
-
-def get_favorite_volumes(user_id: int) -> List[int]:
-    """Get user's favorite custom volumes"""
-    user = get_user(user_id)
-    if not user or not user.favorite_volumes:
-        return []
-    
-    try:
-        return json.loads(user.favorite_volumes)
-    except:
-        return []
-
-
-def add_favorite_volume(user_id: int, volume: int) -> List[int]:
-    """Add a volume to favorites"""
-    from config import MAX_CUSTOM_FAVORITES
-    
-    with get_db() as db:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return []
-        
-        favorites = get_favorite_volumes(user_id)
-        
-        if volume not in favorites and volume not in WATER_PRESETS:
-            favorites.append(volume)
-            # Keep only last N favorites
-            favorites = favorites[-MAX_CUSTOM_FAVORITES:]
-            user.favorite_volumes = json.dumps(favorites)
-        
-        db.flush()
-        return favorites
-
-
-# ============================================================================
 # INITIALIZATION
 # ============================================================================
 
 def init_database():
-    """Initialize database on startup"""
+    """Initialize database on startup and run migrations"""
     from models import init_db
     init_db()
+    migrate_legacy_notification_times()
     print("✅ Database initialized successfully")

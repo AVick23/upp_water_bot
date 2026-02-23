@@ -6,7 +6,7 @@ Tables: users, water_logs, achievements, notification_schedule
 from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Boolean, DateTime, 
+    create_engine, Column, Integer, String, Float, Boolean, DateTime,
     Date, ForeignKey, Enum as SQLEnum, Text, Index
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -42,8 +42,13 @@ class User(Base):
     timezone = Column(String(50), default="UTC")
     
     # Notification settings
-    notification_start = Column(Integer, default=8)   # Hour (0-23)
-    notification_end = Column(Integer, default=22)    # Hour (0-23)
+    notification_start = Column(Integer, default=8)   # Hour (0-23) - legacy, will be migrated to minutes
+    notification_end = Column(Integer, default=22)    # Hour (0-23) - legacy
+    
+    # New fields for precise minute-based scheduling (minutes from midnight)
+    notification_start_minutes = Column(Integer, default=8*60)   # 480 = 8:00
+    notification_end_minutes = Column(Integer, default=22*60)    # 1320 = 22:00
+    
     notifications_enabled = Column(Boolean, default=True)
     
     # Activity mode
@@ -78,6 +83,7 @@ class User(Base):
     water_logs = relationship("WaterLog", back_populates="user", cascade="all, delete-orphan")
     achievements = relationship("UserAchievement", back_populates="user", cascade="all, delete-orphan")
     insights = relationship("Insight", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("NotificationSchedule", back_populates="user", cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -190,21 +196,26 @@ class NotificationSchedule(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    notification_type = Column(String(50), nullable=False)  # morning, reminder, evening
-    scheduled_time = Column(DateTime, nullable=False)
+    notification_type = Column(String(50), nullable=False)  # smart_reminder, morning, evening (legacy)
+    scheduled_time = Column(DateTime, nullable=False)       # UTC time when to send
+    context = Column(Text, nullable=True)                   # JSON with additional data (glass number, total, etc.)
     
     is_sent = Column(Boolean, default=False)
     sent_at = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # Relationships
+    user = relationship("User", back_populates="notifications")
+    
     # Indexes
     __table_args__ = (
         Index('ix_notifications_pending', 'scheduled_time', 'is_sent'),
+        Index('ix_notifications_user', 'user_id'),
     )
     
     def __repr__(self):
-        return f"<NotificationSchedule(user_id={self.user_id}, type={self.notification_type})>"
+        return f"<NotificationSchedule(user_id={self.user_id}, type={self.notification_type}, time={self.scheduled_time})>"
 
 
 # ============================================================================

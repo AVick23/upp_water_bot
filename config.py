@@ -11,7 +11,7 @@ from pathlib import Path
 
 # ============================================================================
 # LOAD .ENV FILE
-# ============================================================================
+#============================================================================
 
 def load_env_file():
     """Load environment variables from .env file"""
@@ -386,6 +386,9 @@ class Locale:
         "notif_achievement_mythic": "💎 МИФИЧЕСКОЕ: {name}! 💎",
         "notif_level_up": "🎊 Уровень повышен! Теперь ты {level} уровня!",
         
+        # NEW: Smart notification message
+        "notif_smart": "💧 Стакан {glass} из {total}. Осталось ещё {remaining} стаканов на сегодня.",
+        
         # Achievements names
         "ach_streak_3": "🌱 Первые шаги",
         "ach_streak_7": "🔥 Неделя силы",
@@ -591,6 +594,9 @@ class Locale:
         "notif_achievement_legendary": "🌟 LEGENDARY: {name}! 🌟",
         "notif_achievement_mythic": "💎 MYTHIC: {name}! 💎",
         "notif_level_up": "🎊 Level up! You're now level {level}!",
+        
+        # NEW: Smart notification message
+        "notif_smart": "💧 Glass {glass} of {total}. {remaining} glasses left today.",
         
         # Achievements names (same as RU but translated)
         "ach_streak_3": "🌱 First Steps",
