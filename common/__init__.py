@@ -1,0 +1,167 @@
+"""
+Common module for WaterBot
+Shared utilities, decorators, middleware and helpers
+"""
+
+from common.decorators import (
+    require_registration,
+    log_function_call,
+    admin_only,
+    rate_limit,
+    retry_on_error,
+    timeout,
+    cache_result,
+    handle_errors,
+    user_context,
+    send_typing_action,
+    send_upload_photo_action
+)
+from common.middleware import (
+    middleware_manager,
+    setup_middleware,
+    get_middleware_stats,
+    MetricsCollector,
+    RateLimiter
+)
+from common.helpers import (
+    escape_markdown,
+    split_message,
+    safe_send_message,
+    safe_edit_message,
+    get_user_locale,
+    format_number,
+    parse_time,
+    parse_date,
+    get_local_time,
+    get_local_date,
+    format_datetime,
+    get_progress_bar,
+    get_loading_animation,
+    truncate_text,
+    generate_id,
+    hash_string,
+    group_by,
+    chunk_list,
+    format_emoji,
+    json_dumps,
+    json_loads,
+    validate_timezone,
+    get_timezone_offset,
+    parse_telegram_command,
+    extract_mention,
+    extract_number,
+    format_phone,
+    format_bytes,
+    create_callback_data,
+    parse_callback_data
+)
+from common.handlers import (
+    error_handler,
+    help_handler,
+    about_handler,
+    cancel_handler,
+    admin_stats_handler,
+    admin_broadcast_handler,
+    admin_sql_handler
+)
+from common.constants import (
+    BOT_INFO,
+    MAX_MESSAGE_LENGTH,
+    MAX_CAPTION_LENGTH,
+    ITEMS_PER_PAGE,
+    BUTTONS_PER_ROW,
+    CACHE_TTL,
+    RATE_LIMITS,
+    ERROR_MESSAGES,
+    SUCCESS_MESSAGES,
+    LOADING_ANIMATIONS,
+    PROGRESS_SYMBOLS,
+    TIME_FORMATS,
+    EMOJI_MAP,
+    CALLBACK_PATTERNS,
+    HTTP_STATUS,
+    LOG_LEVELS,
+    DB_ERROR_CODES
+)
+
+__all__ = [
+    # Decorators
+    'require_registration',
+    'log_function_call',
+    'admin_only',
+    'rate_limit',
+    'retry_on_error',
+    'timeout',
+    'cache_result',
+    'handle_errors',
+    'user_context',
+    'send_typing_action',
+    'send_upload_photo_action',
+    
+    # Middleware
+    'middleware_manager',
+    'setup_middleware',
+    'get_middleware_stats',
+    'MetricsCollector',
+    'RateLimiter',
+    
+    # Helpers
+    'escape_markdown',
+    'split_message',
+    'safe_send_message',
+    'safe_edit_message',
+    'get_user_locale',
+    'format_number',
+    'parse_time',
+    'parse_date',
+    'get_local_time',
+    'get_local_date',
+    'format_datetime',
+    'get_progress_bar',
+    'get_loading_animation',
+    'truncate_text',
+    'generate_id',
+    'hash_string',
+    'group_by',
+    'chunk_list',
+    'format_emoji',
+    'json_dumps',
+    'json_loads',
+    'validate_timezone',
+    'get_timezone_offset',
+    'parse_telegram_command',
+    'extract_mention',
+    'extract_number',
+    'format_phone',
+    'format_bytes',
+    'create_callback_data',
+    'parse_callback_data',
+    
+    # Handlers
+    'error_handler',
+    'help_handler',
+    'about_handler',
+    'cancel_handler',
+    'admin_stats_handler',
+    'admin_broadcast_handler',
+    'admin_sql_handler',
+    
+    # Constants
+    'BOT_INFO',
+    'MAX_MESSAGE_LENGTH',
+    'MAX_CAPTION_LENGTH',
+    'ITEMS_PER_PAGE',
+    'BUTTONS_PER_ROW',
+    'CACHE_TTL',
+    'RATE_LIMITS',
+    'ERROR_MESSAGES',
+    'SUCCESS_MESSAGES',
+    'LOADING_ANIMATIONS',
+    'PROGRESS_SYMBOLS',
+    'TIME_FORMATS',
+    'EMOJI_MAP',
+    'CALLBACK_PATTERNS',
+    'HTTP_STATUS',
+    'LOG_LEVELS',
+    'DB_ERROR_CODES',
+]

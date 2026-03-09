@@ -14,7 +14,7 @@ from config import (
     Gender, ActivityLevel, ActivityMode, DrinkType, AchievementType,
     DRINK_COEFFICIENTS, ACHIEVEMENTS, config, Locale
 )
-from database import (
+from db import (
     get_user, update_user, get_today_total, get_date_total,
     add_achievement, has_achievement, update_streak, check_streak_lost,
     get_week_stats, get_month_heatmap, add_insight, export_to_dict, export_to_csv,
@@ -108,9 +108,10 @@ def calculate_water_norm(
     )
 
 
-def get_user_daily_norm(user_id: int, temperature: float = 20.0) -> int:
-    """Get calculated daily norm for a user"""
-    user = get_user(user_id)
+# Найдите эту функцию и переименуйте:
+async def get_user_daily_norm_async(user_id: int, temperature: float = 20.0) -> int:
+    """Get calculated daily norm for a user (async version)"""
+    user = await get_user(user_id)
     if not user or not user.weight:
         return 2000  # Default
     
@@ -123,6 +124,9 @@ def get_user_daily_norm(user_id: int, temperature: float = 20.0) -> int:
     )
     
     return result.final_norm
+
+# Сохраните алиас для обратной совместимости
+get_user_daily_norm = get_user_daily_norm_async
 
 
 # ============================================================================
@@ -422,7 +426,7 @@ class AchievementService:
     def _check_drink_achievements(user_id: int, drink_type: DrinkType) -> List[AchievementType]:
         """Check drink type achievements"""
         achievements = []
-        from database import get_drink_breakdown, get_logs_for_period
+        from db import get_drink_breakdown, get_logs_for_period
         
         # Check variety king - all 5 drink types in one day
         breakdown = get_drink_breakdown(user_id)
@@ -804,3 +808,27 @@ async def export_user_data(user_id: int, format: str = "json") -> Tuple[str, str
         filename = f"water_export_{user_id}_{timestamp}.json"
     
     return content, filename
+
+# Синхронная версия для обратной совместимости
+def get_user_daily_norm_sync(user_id: int, temperature: float = 20.0) -> int:
+    """Синхронная версия get_user_daily_norm для использования в синхронном коде"""
+    try:
+        import asyncio
+        # Пытаемся получить существующий event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Если loop уже запущен, создаем новый в отдельном потоке
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, get_user_daily_norm(user_id, temperature))
+                    return future.result()
+            else:
+                return loop.run_until_complete(get_user_daily_norm(user_id, temperature))
+        except RuntimeError:
+            # Нет запущенного loop, создаем новый
+            return asyncio.run(get_user_daily_norm(user_id, temperature))
+    except Exception as e:
+        # В случае ошибки возвращаем значение по умолчанию
+        print(f"Error in get_user_daily_norm_sync: {e}")
+        return 2000
