@@ -132,7 +132,7 @@ class MiddlewareManager:
                 lang = get_user_locale(update)
                 from config import Locale
                 L = Locale.RU if lang == "ru" else Locale.EN
-                await update.effective_message.reply_text("🐢 " + L["rate_limit"])
+                await update.effective_message.reply_text("🐢 " + L.get("rate_limit", "Too many requests"))
                 raise ApplicationHandlerStop()
             
             # Execute handler
@@ -173,29 +173,25 @@ async def setup_middleware(application):
     async def process_update_with_middleware(update: Update):
         """Process update with middleware"""
         
-        # Создаем callback для обработчика
-        async def handler(update: Update):
+        # This inner handler will be called by the middleware with the correct context
+        async def handler_with_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await original_process_update(update)
         
         try:
-            # Создаем контекст вручную, как это делает application
-            context = ContextTypes.DEFAULT_TYPE(application)
+            # Создаем контекст через внутренний метод application
+            # Это правильный способ получить полностью инициализированный контекст
+            context = await application._get_context(update)
             
-            # Инициализируем данные контекста
-            if update.effective_chat:
-                context._chat_id = update.effective_chat.id
-                context.chat_data = application.chat_data[update.effective_chat.id]
-            if update.effective_user:
-                context._user_id = update.effective_user.id
-                context.user_data = application.user_data[update.effective_user.id]
+            if context is None:
+                # Fallback: создаем минимальный контекст
+                context = ContextTypes.DEFAULT_TYPE(application)
+                # Устанавливаем ID чата и пользователя
+                if update.effective_chat:
+                    context._chat_id = update.effective_chat.id
+                if update.effective_user:
+                    context._user_id = update.effective_user.id
             
-            context.bot_data = application.bot_data
-            
-            # Оборачиваем handler для соответствия сигнатуре
-            async def wrapped_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-                await handler(update)
-            
-            await middleware_manager.process(update, context, wrapped_handler)
+            await middleware_manager.process(update, context, handler_with_context)
             
         except ApplicationHandlerStop:
             # Stop propagation
@@ -206,7 +202,7 @@ async def setup_middleware(application):
     # Replace process_update
     application.process_update = process_update_with_middleware
     
-    # Store middleware in app data
+    # Store middleware in app data (use existing bot_data)
     if "middleware" not in application.bot_data:
         application.bot_data["middleware"] = middleware_manager
     if "metrics" not in application.bot_data:

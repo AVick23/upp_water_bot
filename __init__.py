@@ -6,6 +6,7 @@ Registers all handlers and sets up the bot
 import asyncio
 import logging
 from typing import Optional
+from registration.handlers import start_registration
 
 from telegram.ext import (
     Application, ApplicationBuilder, PicklePersistence, 
@@ -81,9 +82,12 @@ async def create_bot() -> Application:
     # Register background jobs
     register_jobs(application)
     
+   
+    application.add_handler(CommandHandler("start", start_registration), group=0)
+
     # Register common handlers
-    application.add_handler(CommandHandler("help", help_handler))
-    application.add_handler(CommandHandler("about", about_handler))
+    application.add_handler(CommandHandler("help", help_handler), group=1)
+    application.add_handler(CommandHandler("about", about_handler), group=1)
     
     # Register error handler
     application.add_error_handler(error_handler)
