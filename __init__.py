@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 from config import config
-from db import init_db, close_engine, migrate_legacy_notification_times  # Изменено здесь
+from db import init_db, close_engine, migrate_legacy_notification_times
 from common.middleware import setup_middleware
 
 # Import all module initializers
@@ -27,6 +27,9 @@ from common.handlers import error_handler, help_handler, about_handler
 
 logger = logging.getLogger(__name__)
 
+# Flag to prevent multiple shutdown attempts
+_shutting_down = False
+
 
 async def create_bot() -> Application:
     """
@@ -37,7 +40,7 @@ async def create_bot() -> Application:
     
     # Initialize database
     logger.info("Initializing database...")
-    await init_db()  # Изменено здесь - используем init_db вместо init_engine
+    await init_db()
     await migrate_legacy_notification_times()
     
     # Create bot application with persistence
@@ -103,30 +106,77 @@ async def run_bot(application: Application) -> None:
     logger.info("Bot is running!")
     
     # Keep running until stopped
-    while True:
-        await asyncio.sleep(1)
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        logger.info("Bot run task cancelled")
+        raise
 
 
 async def shutdown_bot(application: Application, loop: asyncio.AbstractEventLoop) -> None:
     """
     Gracefully shutdown the bot and close all connections.
     """
+    global _shutting_down
+    
+    # Prevent multiple shutdown attempts
+    if _shutting_down:
+        logger.info("Shutdown already in progress, skipping...")
+        return
+    
+    _shutting_down = True
     logger.info("Shutting down bot...")
     
-    # Stop bot
+    # Stop bot with proper checks
     if application.updater:
-        await application.updater.stop()
-    await application.stop()
-    await application.shutdown()
+        try:
+            # Check if updater is running before stopping
+            if hasattr(application.updater, 'running') and application.updater.running:
+                await application.updater.stop()
+                logger.info("Updater stopped")
+            else:
+                logger.info("Updater was not running")
+        except Exception as e:
+            logger.error(f"Error stopping updater: {e}")
+    
+    try:
+        # Check if application is running before stopping
+        if hasattr(application, 'running') and application.running:
+            await application.stop()
+            logger.info("Application stopped")
+        else:
+            logger.info("Application was not running")
+    except Exception as e:
+        logger.error(f"Error stopping application: {e}")
+    
+    try:
+        await application.shutdown()
+        logger.info("Application shut down")
+    except Exception as e:
+        logger.error(f"Error shutting down application: {e}")
     
     # Close database connections
-    await close_engine()
+    try:
+        await close_engine()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error closing database: {e}")
     
-    # Cancel all tasks
+    # Cancel all tasks except current
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+    if tasks:
+        logger.info(f"Cancelling {len(tasks)} pending tasks...")
+        for task in tasks:
+            task.cancel()
+        
+        # Wait for tasks to complete with timeout
+        try:
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Some tasks did not complete within timeout")
+        except Exception as e:
+            logger.error(f"Error during task cancellation: {e}")
     
     logger.info("Shutdown complete")
     loop.stop()

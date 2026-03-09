@@ -20,6 +20,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global reference to shutdown task to prevent multiple creations
+_shutdown_task = None
+
 
 async def async_main():
     """Async main entry point"""
@@ -27,13 +30,28 @@ async def async_main():
     
     loop = asyncio.get_running_loop()
     
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(
-            sig,
-            lambda: asyncio.create_task(shutdown_bot(app, loop))
-        )
+    def signal_handler():
+        global _shutdown_task
+        if _shutdown_task is None or _shutdown_task.done():
+            logger.info("Signal received, initiating shutdown...")
+            _shutdown_task = asyncio.create_task(shutdown_bot(app, loop))
+        else:
+            logger.info("Shutdown already in progress...")
     
-    await run_bot(app)
+    # Register signal handlers
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, signal_handler)
+    
+    try:
+        await run_bot(app)
+    except asyncio.CancelledError:
+        logger.info("Main task cancelled")
+    finally:
+        # Ensure shutdown is called if not already
+        if _shutdown_task is None or _shutdown_task.done():
+            await shutdown_bot(app, loop)
+        else:
+            await _shutdown_task
 
 
 def main():
