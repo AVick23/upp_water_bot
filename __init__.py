@@ -92,6 +92,15 @@ async def create_bot() -> Application:
     return application
 
 
+def handle_polling_error(error: Exception) -> None:
+    """Handle polling errors - this is a SYNCHRONOUS function"""
+    if isinstance(error, TimedOut):
+        logger.warning(f"Polling timeout (expected): {error}")
+        # Don't log as error, it's expected sometimes
+    else:
+        logger.error(f"Polling error: {error}")
+
+
 async def run_bot(application: Application) -> None:
     """
     Run the bot application.
@@ -102,7 +111,7 @@ async def run_bot(application: Application) -> None:
         await application.initialize()
         await application.start()
         
-        # Start polling with error handling
+        # Start polling with error handling - use SYNCHRONOUS function
         await application.updater.start_polling(
             allowed_updates=[
                 "message",
@@ -110,7 +119,7 @@ async def run_bot(application: Application) -> None:
                 "chat_member",
                 "my_chat_member"
             ],
-            error_callback=handle_polling_error
+            error_callback=handle_polling_error  # Now it's a regular function, not async
         )
         
         logger.info("Bot is running!")
@@ -129,15 +138,6 @@ async def run_bot(application: Application) -> None:
     except Exception as e:
         logger.error(f"Unexpected error in run_bot: {e}")
         raise
-
-
-async def handle_polling_error(error: Exception) -> None:
-    """Handle polling errors"""
-    if isinstance(error, TimedOut):
-        logger.warning(f"Polling timeout (expected): {error}")
-        # Don't log as error, it's expected sometimes
-    else:
-        logger.error(f"Polling error: {error}")
 
 
 async def shutdown_bot(application: Application, loop: asyncio.AbstractEventLoop) -> None:
