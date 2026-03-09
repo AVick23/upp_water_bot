@@ -11,6 +11,7 @@ from telegram.ext import (
     Application, ApplicationBuilder, PicklePersistence, 
     CommandHandler
 )
+from telegram.error import TimedOut
 
 from config import config
 from db import init_db, close_engine, migrate_legacy_notification_times
@@ -49,11 +50,17 @@ async def create_bot() -> Application:
         update_interval=60
     )
     
+    # Configure application with timeout settings
     application = (
         ApplicationBuilder()
         .token(config.BOT_TOKEN)
         .persistence(persistence)
         .concurrent_updates(True)
+        .connection_pool_size(512)
+        .pool_timeout(30.0)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
         .build()
     )
     
@@ -90,28 +97,47 @@ async def run_bot(application: Application) -> None:
     Run the bot application.
     """
     logger.info("Starting bot polling...")
-    await application.initialize()
-    await application.start()
     
-    # Start polling
-    await application.updater.start_polling(
-        allowed_updates=[
-            "message",
-            "callback_query",
-            "chat_member",
-            "my_chat_member"
-        ]
-    )
-    
-    logger.info("Bot is running!")
-    
-    # Keep running until stopped
     try:
-        while True:
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        logger.info("Bot run task cancelled")
+        await application.initialize()
+        await application.start()
+        
+        # Start polling with error handling
+        await application.updater.start_polling(
+            allowed_updates=[
+                "message",
+                "callback_query",
+                "chat_member",
+                "my_chat_member"
+            ],
+            error_callback=handle_polling_error
+        )
+        
+        logger.info("Bot is running!")
+        
+        # Keep running until stopped
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            logger.info("Bot run task cancelled")
+            raise
+            
+    except TimedOut as e:
+        logger.error(f"Polling timeout error: {e}")
+        # Don't raise - let the bot continue running
+    except Exception as e:
+        logger.error(f"Unexpected error in run_bot: {e}")
         raise
+
+
+async def handle_polling_error(error: Exception) -> None:
+    """Handle polling errors"""
+    if isinstance(error, TimedOut):
+        logger.warning(f"Polling timeout (expected): {error}")
+        # Don't log as error, it's expected sometimes
+    else:
+        logger.error(f"Polling error: {error}")
 
 
 async def shutdown_bot(application: Application, loop: asyncio.AbstractEventLoop) -> None:
@@ -179,4 +205,5 @@ async def shutdown_bot(application: Application, loop: asyncio.AbstractEventLoop
             logger.error(f"Error during task cancellation: {e}")
     
     logger.info("Shutdown complete")
-    loop.stop()
+    
+    # Don't stop the loop here - let the main function handle it
