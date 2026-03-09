@@ -173,18 +173,30 @@ async def setup_middleware(application):
     async def process_update_with_middleware(update: Update):
         """Process update with middleware"""
         
-        async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            """Actual handler that calls original process_update"""
+        # Создаем callback для обработчика
+        async def handler(update: Update):
             await original_process_update(update)
         
         try:
-            # Create a dummy context if needed
+            # Создаем контекст вручную, как это делает application
             context = ContextTypes.DEFAULT_TYPE(application)
-            context.bot_data = application.bot_data
-            context.chat_data = application.chat_data
-            context.user_data = application.user_data
             
-            await middleware_manager.process(update, context, handler)
+            # Инициализируем данные контекста
+            if update.effective_chat:
+                context._chat_id = update.effective_chat.id
+                context.chat_data = application.chat_data[update.effective_chat.id]
+            if update.effective_user:
+                context._user_id = update.effective_user.id
+                context.user_data = application.user_data[update.effective_user.id]
+            
+            context.bot_data = application.bot_data
+            
+            # Оборачиваем handler для соответствия сигнатуре
+            async def wrapped_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+                await handler(update)
+            
+            await middleware_manager.process(update, context, wrapped_handler)
+            
         except ApplicationHandlerStop:
             # Stop propagation
             pass
@@ -195,8 +207,10 @@ async def setup_middleware(application):
     application.process_update = process_update_with_middleware
     
     # Store middleware in app data
-    application.bot_data["middleware"] = middleware_manager
-    application.bot_data["metrics"] = middleware_manager.metrics
+    if "middleware" not in application.bot_data:
+        application.bot_data["middleware"] = middleware_manager
+    if "metrics" not in application.bot_data:
+        application.bot_data["metrics"] = middleware_manager.metrics
 
 
 def get_middleware_stats(application) -> Dict[str, Any]:
