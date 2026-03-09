@@ -173,11 +173,18 @@ async def setup_middleware(application):
     async def process_update_with_middleware(update: Update):
         """Process update with middleware"""
         
-        async def handler(update):
+        async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """Actual handler that calls original process_update"""
             await original_process_update(update)
         
         try:
-            await middleware_manager.process(update, None, handler)
+            # Create a dummy context if needed
+            context = ContextTypes.DEFAULT_TYPE(application)
+            context.bot_data = application.bot_data
+            context.chat_data = application.chat_data
+            context.user_data = application.user_data
+            
+            await middleware_manager.process(update, context, handler)
         except ApplicationHandlerStop:
             # Stop propagation
             pass

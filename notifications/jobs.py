@@ -58,6 +58,7 @@ async def job_minute_check(context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to send notification {notif.id}: {e}")
 
 
+
 async def send_smart_reminder(context, user, notif, lang):
     """Send smart reminder notification"""
     ctx = json.loads(notif.context) if notif.context else {}
@@ -66,10 +67,15 @@ async def send_smart_reminder(context, user, notif, lang):
     remaining = ctx.get("remaining_ml", 0)
     glasses_left = (remaining + 249) // 250
     today_total = await get_today_total(user.id)
-    goal = get_user_daily_norm(user.id)
+    
+    # ВАЖНО: добавляем await!
+    from services import get_user_daily_norm_async
+    goal = await get_user_daily_norm_async(user.id)  # Был пропущен await
+    
     percent = int((today_total / goal) * 100) if goal > 0 else 0
     
     # Get random message from templates
+    from notifications.constants import NOTIFICATION_MESSAGES
     messages = NOTIFICATION_MESSAGES["smart"][lang if lang == "ru" else "en"]
     message = random.choice(messages).format(
         remaining=remaining,
@@ -171,7 +177,13 @@ async def job_daily_reset(context: ContextTypes.DEFAULT_TYPE):
     """
     reset_hour = config.STREAK_RESET_HOUR  # обычно 6
     
-    async with get_session() as session:
+    # ВАЖНО: используем session_manager правильно
+    from db.session import session_manager
+    
+    async with session_manager.session() as session:
+        from sqlalchemy import select
+        from db.models import User
+        
         result = await session.execute(
             select(User).where(User.notifications_enabled == True)
         )
