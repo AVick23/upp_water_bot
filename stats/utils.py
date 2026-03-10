@@ -38,26 +38,22 @@ async def get_period_data(
     days = period_info.get("days")
     
     if days is None:  # All time
-        start_date = date(2000, 1, 1)  # Far past
+        start_date = date(2000, 1, 1)
         end_date = date.today()
     else:
         end_date = target_date
         start_date = target_date - timedelta(days=days - 1)
     
-    # Get logs for period
     logs = await get_logs_for_period(user_id, start_date, end_date)
     
-    # Group by date
     daily_totals = defaultdict(int)
     for log in logs:
         daily_totals[log.logged_date] += log.effective_ml
     
-    # Calculate statistics
     total_ml = sum(daily_totals.values())
     active_days = len(daily_totals)
     avg_per_day = total_ml / days if days and days > 0 else total_ml / max(active_days, 1)
     
-    # Find best day
     best_day = None
     best_value = 0
     for d, v in daily_totals.items():
@@ -65,12 +61,12 @@ async def get_period_data(
             best_value = v
             best_day = d
     
-    # ИСПРАВЛЕНО: получаем язык один раз, а не в каждой итерации
     lang = await get_user_lang(user_id)
     
     return {
         "period": period,
-        "period_name": period_info[f"name_{lang}"],
+        # ИСПРАВЛЕНО: используем period_info[lang] вместо period_info[f"name_{lang}"]
+        "period_name": period_info[lang],
         "start_date": start_date,
         "end_date": end_date,
         "total_ml": total_ml,

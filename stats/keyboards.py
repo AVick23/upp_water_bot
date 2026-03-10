@@ -18,16 +18,17 @@ def get_stats_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         if period_id == "all":
             continue  # Skip all time for main keyboard
             
-        btn_text = period[f"name_{lang}"]
+        # ИСПРАВЛЕНО: используем period[lang] вместо period[f"name_{lang}"]
+        btn_text = period[lang]
         row.append(InlineKeyboardButton(btn_text, callback_data=f"stats_{period_id}"))
         
-        if len(row) == 2 or i == len(PERIODS) - 2:  # 2 buttons per row
+        if len(row) == 2 or i == len(PERIODS) - 2:
             keyboard.append(row)
             row = []
     
     # All time button
     keyboard.append([
-        InlineKeyboardButton(PERIODS["all"][f"name_{lang}"], callback_data="stats_all")
+        InlineKeyboardButton(PERIODS["all"][lang], callback_data="stats_all")
     ])
     
     # Back button
