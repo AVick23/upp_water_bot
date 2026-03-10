@@ -7,13 +7,14 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
-from registration.handlers import start_registration
 
 from telegram.ext import (
     Application, ApplicationBuilder, PicklePersistence, 
-    CommandHandler
+    CommandHandler, CallbackQueryHandler
 )
 from telegram.error import TimedOut
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from config import config
 from db import init_db, close_engine, migrate_legacy_notification_times
@@ -26,7 +27,7 @@ from stats import register_handlers as register_stats
 from achievements import register_handlers as register_achievements
 from settings import register_handlers as register_settings
 from notifications import register_handlers as register_notifications, register_jobs
-from common.handlers import error_handler, help_handler, about_handler
+from common.handlers import error_handler, help_handler, about_handler, back_to_main_menu
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ async def create_bot() -> Application:
     await init_db()
     await migrate_legacy_notification_times()
     
-    # ИСПРАВЛЕНО: создаем папку data, если её нет
+    # Создаем папку data, если её нет
     data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
     logger.info(f"Data directory ensured: {data_dir.absolute()}")
@@ -88,13 +89,19 @@ async def create_bot() -> Application:
     # Register background jobs
     register_jobs(application)
     
-    # ВНИМАНИЕ: этот обработчик дублируется с registration-модулем!
-    # Лучше удалить, так как registration уже регистрирует свой ConversationHandler
-    # application.add_handler(CommandHandler("start", start_registration), group=0)
-
-    # Register common handlers
-    application.add_handler(CommandHandler("help", help_handler), group=1)
-    application.add_handler(CommandHandler("about", about_handler), group=1)
+    # ДОБАВЛЕНО: обработчик для кнопки "Назад" в главное меню
+    application.add_handler(
+        CallbackQueryHandler(back_to_main_menu, pattern="^main_menu$")
+    )
+    
+    # ДОБАВЛЕНО: обработчик для кнопки "О боте" (для callback-запросов)
+    application.add_handler(
+        CallbackQueryHandler(about_handler, pattern="^about$")
+    )
+    
+    # Register common command handlers
+    application.add_handler(CommandHandler("help", help_handler))
+    application.add_handler(CommandHandler("about", about_handler))
     
     # Register error handler
     application.add_error_handler(error_handler)

@@ -62,7 +62,8 @@ from common.handlers import (
     cancel_handler,
     admin_stats_handler,
     admin_broadcast_handler,
-    admin_sql_handler
+    admin_sql_handler,
+    back_to_main_menu  # Добавлено
 )
 from common.constants import (
     BOT_INFO,
@@ -145,6 +146,7 @@ __all__ = [
     'admin_stats_handler',
     'admin_broadcast_handler',
     'admin_sql_handler',
+    'back_to_main_menu',
     
     # Constants
     'BOT_INFO',

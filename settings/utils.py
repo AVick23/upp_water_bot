@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 from config import Gender, ActivityLevel, ActivityMode
 from db import get_user
-from settings.constants import MODE_MULTIPLIERS, TIMEZONE_PRESETS, LANGUAGES
+from settings.constants import MODE_MULTIPLIERS, TIMEZONE_PRESETS, LANGUAGES, NOTIFICATION_PRESETS
 
 
 async def get_user_settings_display(user_id: int) -> Dict[str, Any]:
@@ -179,7 +179,6 @@ def get_language_name(lang_code: str, display_lang: str = "ru") -> str:
 
 def get_notification_preset(preset_id: str) -> Optional[Dict]:
     """Get notification preset by ID"""
-    from settings.constants import NOTIFICATION_PRESETS
     return NOTIFICATION_PRESETS.get(preset_id)
 
 

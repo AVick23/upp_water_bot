@@ -115,8 +115,17 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def about_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show about information"""
+    # Определяем, откуда пришел вызов
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        message = query.message
+        edit = True
+    else:
+        message = update.message
+        edit = False
+    
     lang = get_user_locale(update)
-    L = Locale.RU if lang == "ru" else Locale.EN
     
     if lang == "ru":
         text = (
@@ -169,13 +178,12 @@ async def about_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Made with ❤️ for healthy lifestyle"
         )
     
-    keyboard = [[InlineKeyboardButton(L["btn_back"], callback_data="main_menu")]]
+    keyboard = [[InlineKeyboardButton(Locale.get("btn_back", lang), callback_data="main_menu")]]
     
-    await safe_send_message(
-        update,
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    if edit:
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,6 +204,15 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # from bot.handlers import send_main_menu
     # return await send_main_menu(update, context)
     return
+
+
+async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Return to main menu"""
+    query = update.callback_query
+    await query.answer()
+    
+    from registration.handlers import send_main_menu
+    await send_main_menu(update, context)
 
 
 @admin_only
@@ -293,4 +310,3 @@ async def admin_sql_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Split long messages
     for chunk in split_message(text):
         await update.message.reply_text(chunk, parse_mode=None)
-        

@@ -58,7 +58,6 @@ def get_notification_presets_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         start_str = f"{start//60:02d}:{start%60:02d}"
         end_str = f"{end//60:02d}:{end%60:02d}"
         
-        # ИСПРАВЛЕНО: используем правильный ключ в зависимости от языка
         name_key = f"name_{lang}"
         btn_text = f"{preset[name_key]} ({start_str}-{end_str})"
         keyboard.append([InlineKeyboardButton(
@@ -173,8 +172,7 @@ def get_notification_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     """Keyboard for notification messages with quick add"""
     keyboard = [
         [InlineKeyboardButton(
-            Locale.get("main_add_water", lang) if hasattr(Locale, "main_add_water") 
-            else ("💧 Добавить воду" if lang == "ru" else "💧 Add water"), 
+            Locale.get("main_add_water", lang),
             callback_data="add_water"
         )]
     ]

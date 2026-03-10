@@ -70,7 +70,6 @@ async def send_smart_reminder(context, user, notif, lang):
     glasses_left = (remaining + 249) // 250  # ceil division
     
     today_total = await get_today_total(user.id)
-    # ИСПРАВЛЕНО: добавляем await
     goal = await get_user_daily_norm_async(user.id)
     percent = int((today_total / goal) * 100) if goal > 0 else 0
     
@@ -110,7 +109,6 @@ async def send_morning_notification(context, user, notif, lang):
         except Exception as e:
             logger.error(f"Weather fetch failed for user {user.id}: {e}")
     
-    # ИСПРАВЛЕНО: добавляем await
     goal = await get_user_daily_norm_async(user.id, temperature or 20)
     
     messages = NOTIFICATION_MESSAGES["morning"][lang if lang == "ru" else "en"]
@@ -130,10 +128,10 @@ async def send_morning_notification(context, user, notif, lang):
     except Exception as e:
         logger.error(f"Failed to send morning notification to user {user.id}: {e}")
 
+
 async def send_evening_notification(context, user, notif, lang):
     """Send evening summary notification"""
     today_total = await get_today_total(user.id)
-    # ИСПРАВЛЕНО: добавляем await
     goal = await get_user_daily_norm_async(user.id)
     percent = int((today_total / goal) * 100) if goal > 0 else 0
     

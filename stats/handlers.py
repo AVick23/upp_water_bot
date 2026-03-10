@@ -13,9 +13,9 @@ from config import Locale
 from db import (
     get_user_stats, get_week_stats, get_month_heatmap,
     get_user, get_achievements_count, get_user_achievements,
-    export_to_dict, export_to_csv
+    export_to_dict, export_to_csv, get_logs_for_period
 )
-from services import get_user_daily_norm_async, achievement_service
+from services import get_user_daily_norm_async, achievement_service, get_progress_bar
 from stats.keyboards import (
     get_stats_keyboard, get_detailed_stats_keyboard,
     get_comparison_keyboard, get_heatmap_keyboard,
@@ -72,7 +72,7 @@ async def cb_stats_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Get user for goal
     user = await get_user(user_id)
-    daily_goal = await get_user_daily_norm_async(user_id)  # Исправлено: используем асинхронную версию
+    daily_goal = await get_user_daily_norm_async(user_id)
     
     # Format message based on period
     if period == "day":
@@ -101,7 +101,6 @@ def format_day_stats(user_id: int, data: dict, goal: int, lang: str) -> str:
     date_str = data["end_date"].strftime("%d.%m.%Y")
     percent = (data["total_ml"] / goal * 100) if goal > 0 else 0
     
-    from services import get_progress_bar
     bar = get_progress_bar(data["total_ml"], goal)
     
     text = (
@@ -296,7 +295,6 @@ async def cb_export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Convert to export format
         if format_type == "csv":
             # Generate CSV for period
-            from db import get_logs_for_period
             logs = await get_logs_for_period(
                 user_id,
                 period_data["start_date"],
@@ -339,9 +337,11 @@ def export_logs_to_csv(logs) -> str:
     writer.writerow(["date", "time", "volume_ml", "effective_ml", "drink_type"])
     
     for log in logs:
+        # ИСПРАВЛЕНО: проверка на None для logged_at
+        time_str = log.logged_at.strftime("%H:%M") if log.logged_at else ""
         writer.writerow([
             log.logged_date.isoformat(),
-            log.logged_at.strftime("%H:%M") if log.logged_at else "",
+            time_str,
             log.volume_ml,
             log.effective_ml,
             str(log.drink_type)
@@ -352,8 +352,6 @@ def export_logs_to_csv(logs) -> str:
 
 async def get_period_export(user_id: int, period_data: dict) -> dict:
     """Get export data for specific period"""
-    from db import get_logs_for_period, get_user
-    
     user = await get_user(user_id)
     logs = await get_logs_for_period(
         user_id,
@@ -383,17 +381,3 @@ async def get_period_export(user_id: int, period_data: dict) -> dict:
             for log in logs
         ]
     }
-
-
-def get_progress_bar(current: int, goal: int, width: int = 10) -> str:
-    """Generate progress bar"""
-    if goal <= 0:
-        return "░" * width
-    
-    percent = min(current / goal, 1.0)
-    filled = int(percent * width)
-    
-    if percent >= 1.0:
-        return "█" * width
-    else:
-        return "█" * filled + "░" * (width - filled)

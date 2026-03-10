@@ -385,22 +385,28 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
         "✅ " + ("Время установлено!" if lang == "ru" else "Time set!")
     )
     
-    # We need to recreate the callback query context for the next function
-    # Create a mock callback query to reuse cb_settings_notifications
-    class MockCallbackQuery:
-        def __init__(self, message, user_id):
-            self.message = message
-            self.from_user = type('obj', (), {'id': user_id})()
-        
-        async def answer(self):
-            pass
-        
-        async def edit_message_text(self, *args, **kwargs):
-            # Just pass, we'll use the message we already sent
-            pass
+    # Создаем искусственный callback_query для возврата в настройки
+    # Это более безопасный подход, чем MockCallbackQuery
+    from telegram import CallbackQuery
+    from types import SimpleNamespace
     
-    mock_query = MockCallbackQuery(update.message, user_id)
-    update.callback_query = mock_query
+    # Создаем объект, похожий на CallbackQuery
+    fake_query = SimpleNamespace()
+    fake_query.message = update.message
+    fake_query.from_user = update.effective_user
     
-    # Return to notifications settings
-    await cb_settings_notifications(update, context)
+    async def fake_answer():
+        pass
+    
+    fake_query.answer = fake_answer
+    
+    # Временно подменяем callback_query в update
+    original_callback_query = update.callback_query
+    update.callback_query = fake_query
+    
+    try:
+        # Возвращаемся в настройки уведомлений
+        await cb_settings_notifications(update, context)
+    finally:
+        # Восстанавливаем оригинальный callback_query
+        update.callback_query = original_callback_query

@@ -65,9 +65,12 @@ async def get_period_data(
             best_value = v
             best_day = d
     
+    # ИСПРАВЛЕНО: получаем язык один раз, а не в каждой итерации
+    lang = await get_user_lang(user_id)
+    
     return {
         "period": period,
-        "period_name": period_info[f"name_{await get_user_lang(user_id)}"],
+        "period_name": period_info[f"name_{lang}"],
         "start_date": start_date,
         "end_date": end_date,
         "total_ml": total_ml,

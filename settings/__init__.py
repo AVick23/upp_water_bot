@@ -9,23 +9,11 @@ from settings.handlers import (
     # Main settings
     cb_settings,
     cb_settings_profile,
-    cb_settings_notifications,
     cb_settings_timezone,
     cb_settings_mode,
     cb_settings_language,
     cb_settings_export,
     cb_settings_danger,
-    
-    # Profile editing (imported from registration)
-    cb_toggle_notifications,
-    cb_notification_presets,
-    cb_set_notification_preset,
-    cb_set_notif_time,
-    cb_time_hour_range,
-    cb_time_hour,
-    cb_time_set,
-    cb_time_now,
-    cb_time_custom,
     
     # Timezone
     cb_set_timezone,
@@ -44,10 +32,23 @@ from settings.handlers import (
     cb_danger_action,
     cb_confirm_action,
     cb_cancel_action,
-    
-    # Custom input handler
+)
+
+# Импортируем обработчики уведомлений из модуля notifications
+from notifications.handlers import (
+    cb_settings_notifications,
+    cb_toggle_notifications,
+    cb_notification_presets,
+    cb_set_notification_preset,
+    cb_set_notif_time,
+    cb_time_hour_range,
+    cb_time_hour,
+    cb_time_set,
+    cb_time_now,
+    cb_time_custom,
     handle_custom_time_input
 )
+
 from settings.keyboards import (
     get_settings_main_keyboard,
     get_profile_settings_keyboard,
@@ -102,7 +103,7 @@ def register_handlers(application):
         )
     )
     
-    # Notification settings
+    # Notification settings - ИСПРАВЛЕНО: используем обработчики из notifications
     application.add_handler(
         CallbackQueryHandler(
             require_registration(cb_settings_notifications),
