@@ -529,7 +529,7 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from common.helpers import get_user_locale
     from config import get_main_keyboard
     from db import get_user, get_today_total
-    from services import get_user_daily_norm, weather_service, format_main_message
+    from services import get_user_daily_norm_async, weather_service, format_main_message  # ИСПРАВЛЕНО: импортируем асинхронную версию
     
     user_id = update.effective_user.id
     lang = get_user_locale(update)
@@ -549,7 +549,8 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temperature = weather.temperature
             weather_desc = weather.description
     
-    goal_ml = get_user_daily_norm(user_id, temperature or 20)
+    # ИСПРАВЛЕНО: добавляем await
+    goal_ml = await get_user_daily_norm_async(user_id, temperature or 20)
     
     message = format_main_message(
         current_ml=today_ml,
