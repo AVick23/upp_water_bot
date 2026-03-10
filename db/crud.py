@@ -23,7 +23,8 @@ from config import (
     Gender, ActivityLevel, ActivityMode, DrinkType, AchievementType,
     DRINK_COEFFICIENTS, WATER_PRESETS, ACHIEVEMENTS, config
 )
-from services import get_user_daily_norm_async  # Импортируем асинхронную версию
+
+# НЕ ИМПОРТИРУЕМ services здесь - это вызывает циклическую зависимость
 
 logger = logging.getLogger(__name__)
 
@@ -650,6 +651,9 @@ async def reschedule_smart_notifications(user_id: int):
     Recalculate and recreate all smart reminders for a user
     based on current goal, progress, and notification window.
     """
+    # Импортируем внутри функции, чтобы избежать циклической зависимости
+    from services import get_user_daily_norm_async
+    
     user = await get_user(user_id)
     if not user or not user.notifications_enabled:
         await delete_future_notifications(user_id)
