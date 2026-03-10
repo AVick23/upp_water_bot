@@ -100,7 +100,9 @@ def format_achievements_main(data: dict, recent: list, lang: str) -> str:
         text.append(f"**{messages['recent']}**")
         for ach in recent:
             date_str = ach['earned_at'].strftime("%d.%m")
-            text.append(f"{ach['info']['emoji']} {ach['info']['name']} • {date_str}")
+            # ИСПРАВЛЕНО: получаем имя через Locale.get
+            name = Locale.get(f"ach_{ach['type'].value}", lang)
+            text.append(f"{ach['info']['emoji']} {name} • {date_str}")
     
     return "\n".join(text)
 
