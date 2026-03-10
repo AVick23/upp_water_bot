@@ -16,7 +16,7 @@ from db import (
     get_favorite_volumes, add_favorite_volume
 )
 from services import (
-    get_user_daily_norm,
+    get_user_daily_norm_async,  # ИСПРАВЛЕНО: используем асинхронную версию
     achievement_service,
 )
 from water.keyboards import (

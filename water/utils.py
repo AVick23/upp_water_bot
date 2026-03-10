@@ -12,6 +12,7 @@ from db import (
     get_favorite_volumes, get_user_stats
 )
 from water.constants import SUCCESS_MESSAGES, COEFFICIENT_INFO, VOLUME_RECOMMENDATIONS, DRINK_NAMES, WATER_PRESETS
+from services import get_user_daily_norm_async  # Импортируем асинхронную версию
 
 
 def calculate_effective_volume(volume_ml: int, drink_type: DrinkType) -> int:
@@ -71,8 +72,8 @@ async def check_daily_goal_completion(user_id: int) -> Tuple[bool, int, int]:
         return False, 0, 0
     
     today_total = await get_today_total(user_id)
-    from services import get_user_daily_norm
-    goal = get_user_daily_norm(user_id)
+    # ИСПРАВЛЕНО: добавляем await
+    goal = await get_user_daily_norm_async(user_id)
     
     return today_total >= goal, today_total, goal
 
