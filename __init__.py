@@ -5,6 +5,7 @@ Registers all handlers and sets up the bot
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 from registration.handlers import start_registration
 
@@ -45,6 +46,11 @@ async def create_bot() -> Application:
     await init_db()
     await migrate_legacy_notification_times()
     
+    # ИСПРАВЛЕНО: создаем папку data, если её нет
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    logger.info(f"Data directory ensured: {data_dir.absolute()}")
+    
     # Create bot application with persistence
     persistence = PicklePersistence(
         filepath="data/bot_persistence.pkl",
@@ -82,8 +88,9 @@ async def create_bot() -> Application:
     # Register background jobs
     register_jobs(application)
     
-   
-    application.add_handler(CommandHandler("start", start_registration), group=0)
+    # ВНИМАНИЕ: этот обработчик дублируется с registration-модулем!
+    # Лучше удалить, так как registration уже регистрирует свой ConversationHandler
+    # application.add_handler(CommandHandler("start", start_registration), group=0)
 
     # Register common handlers
     application.add_handler(CommandHandler("help", help_handler), group=1)
@@ -123,7 +130,7 @@ async def run_bot(application: Application) -> None:
                 "chat_member",
                 "my_chat_member"
             ],
-            error_callback=handle_polling_error  # Now it's a regular function, not async
+            error_callback=handle_polling_error
         )
         
         logger.info("Bot is running!")
@@ -209,5 +216,3 @@ async def shutdown_bot(application: Application, loop: asyncio.AbstractEventLoop
             logger.error(f"Error during task cancellation: {e}")
     
     logger.info("Shutdown complete")
-    
-    # Don't stop the loop here - let the main function handle it

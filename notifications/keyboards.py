@@ -58,7 +58,9 @@ def get_notification_presets_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
         start_str = f"{start//60:02d}:{start%60:02d}"
         end_str = f"{end//60:02d}:{end%60:02d}"
         
-        btn_text = f"{preset[f'name_{lang}']} ({start_str}-{end_str})"
+        # ИСПРАВЛЕНО: используем правильный ключ в зависимости от языка
+        name_key = f"name_{lang}"
+        btn_text = f"{preset[name_key]} ({start_str}-{end_str})"
         keyboard.append([InlineKeyboardButton(
             btn_text,
             callback_data=f"notif_preset_{preset_id}"
