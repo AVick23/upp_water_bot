@@ -3,7 +3,7 @@ Keyboard layouts for notifications module
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from typing import Optional
+from typing import Optional, List
 
 from config import Locale
 from notifications.constants import NOTIFICATION_PRESETS, TIME_PRESETS
@@ -24,18 +24,18 @@ def get_notifications_settings_keyboard(
     
     status_text = "✅ " + ("Включены", "Enabled")[lang == "en"] if enabled else "❌ " + ("Выключены", "Disabled")[lang == "en"]
     
-    keyboard = [
+    keyboard: List[List[InlineKeyboardButton]] = [
         [InlineKeyboardButton(
-            f"🔔 {Locale.get('notifications_status', lang) if hasattr(Locale, 'notifications_status') else 'Статус'}: {status_text}",
+            f"🔔 {'Статус:' if lang == 'ru' else 'Status:'} {status_text}",
             callback_data="toggle_notifications"
         )],
         [
             InlineKeyboardButton(
-                f"⏰ {Locale.get('notif_start', lang) if hasattr(Locale, 'notif_start') else 'Начало'}: {start_str}",
+                f"⏰ {'Начало' if lang == 'ru' else 'Start'}: {start_str}",
                 callback_data="set_notif_start"
             ),
             InlineKeyboardButton(
-                f"⏰ {Locale.get('notif_end', lang) if hasattr(Locale, 'notif_end') else 'Конец'}: {end_str}",
+                f"⏰ {'Конец' if lang == 'ru' else 'End'}: {end_str}",
                 callback_data="set_notif_end"
             ),
         ],
@@ -170,6 +170,10 @@ def get_minute_picker_keyboard(
 def get_notification_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     """Keyboard for notification messages with quick add"""
     keyboard = [
-        [InlineKeyboardButton(Locale.get("main_add_water", lang), callback_data="add_water")]
+        [InlineKeyboardButton(
+            Locale.get("main_add_water", lang) if hasattr(Locale, "main_add_water") 
+            else ("💧 Добавить воду" if lang == "ru" else "💧 Add water"), 
+            callback_data="add_water"
+        )]
     ]
     return InlineKeyboardMarkup(keyboard)

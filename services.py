@@ -18,7 +18,7 @@ from db import (
     get_user, update_user, get_today_total, get_date_total,
     add_achievement, has_achievement, update_streak, check_streak_lost,
     get_week_stats, get_month_heatmap, add_insight, export_to_dict, export_to_csv,
-    get_logs_for_period
+    get_logs_for_period, get_drink_breakdown
 )
 
 
@@ -108,7 +108,6 @@ def calculate_water_norm(
     )
 
 
-# Найдите эту функцию и переименуйте:
 async def get_user_daily_norm_async(user_id: int, temperature: float = 20.0) -> int:
     """Get calculated daily norm for a user (async version)"""
     user = await get_user(user_id)
@@ -125,7 +124,7 @@ async def get_user_daily_norm_async(user_id: int, temperature: float = 20.0) -> 
     
     return result.final_norm
 
-# Сохраните алиас для обратной совместимости
+# Алиас для удобства
 get_user_daily_norm = get_user_daily_norm_async
 
 
@@ -193,7 +192,7 @@ class WeatherService:
                     return weather
                     
         except Exception as e:
-            print(f"Weather API error: {e}")
+            logger.error(f"Weather API error: {e}")
             return None
     
     def get_weather_emoji(self, icon_code: str) -> str:
@@ -227,58 +226,50 @@ class AchievementService:
         """Check all possible achievements for a user"""
         new_achievements = []
         
-        user = get_user(user_id)
+        user = await get_user(user_id)
         if not user:
             return new_achievements
         
         # Streak achievements
         streak = user.current_streak or 0
-        new_achievements.extend(
-            AchievementService._check_streak_achievements(user_id, streak)
-        )
+        streak_achs = await AchievementService._check_streak_achievements(user_id, streak)
+        new_achievements.extend(streak_achs)
         
         # Volume achievements
         total = user.total_water_ml or 0
         if volume_ml:
             total += volume_ml
-        new_achievements.extend(
-            AchievementService._check_volume_achievements(user_id, total)
-        )
+        volume_achs = await AchievementService._check_volume_achievements(user_id, total)
+        new_achievements.extend(volume_achs)
         
         # Time-based achievements
-        new_achievements.extend(
-            AchievementService._check_time_achievements(user_id, volume_ml)
-        )
+        time_achs = await AchievementService._check_time_achievements(user_id, volume_ml)
+        new_achievements.extend(time_achs)
         
         # Overachievement (выполнение/превышение нормы)
-        new_achievements.extend(
-            AchievementService._check_overachievement(user_id)
-        )
+        over_achs = await AchievementService._check_overachievement(user_id)
+        new_achievements.extend(over_achs)
         
         # Drink type achievements
-        new_achievements.extend(
-            AchievementService._check_drink_achievements(user_id, drink_type)
-        )
+        drink_achs = await AchievementService._check_drink_achievements(user_id, drink_type)
+        new_achievements.extend(drink_achs)
         
         # Week day achievements
-        new_achievements.extend(
-            AchievementService._check_weekday_achievements(user_id)
-        )
+        weekday_achs = await AchievementService._check_weekday_achievements(user_id)
+        new_achievements.extend(weekday_achs)
         
         # Seasonal achievements
-        new_achievements.extend(
-            AchievementService._check_seasonal_achievements(user_id)
-        )
+        seasonal_achs = await AchievementService._check_seasonal_achievements(user_id)
+        new_achievements.extend(seasonal_achs)
         
         # Special achievements (first day, comeback, etc.)
-        new_achievements.extend(
-            AchievementService._check_special_achievements(user_id)
-        )
+        special_achs = await AchievementService._check_special_achievements(user_id)
+        new_achievements.extend(special_achs)
         
         return new_achievements
     
     @staticmethod
-    def _check_streak_achievements(user_id: int, streak: int) -> List[AchievementType]:
+    async def _check_streak_achievements(user_id: int, streak: int) -> List[AchievementType]:
         """Check streak-based achievements"""
         achievements = []
         
@@ -297,14 +288,16 @@ class AchievementService:
         ]
         
         for threshold, ach_type in streak_thresholds:
-            if streak >= threshold and not has_achievement(user_id, ach_type):
-                add_achievement(user_id, ach_type, {"streak": streak})
-                achievements.append(ach_type)
+            if streak >= threshold:
+                has_ach = await has_achievement(user_id, ach_type)
+                if not has_ach:
+                    await add_achievement(user_id, ach_type, {"streak": streak})
+                    achievements.append(ach_type)
         
         return achievements
     
     @staticmethod
-    def _check_volume_achievements(user_id: int, total_ml: int) -> List[AchievementType]:
+    async def _check_volume_achievements(user_id: int, total_ml: int) -> List[AchievementType]:
         """Check total volume achievements"""
         achievements = []
         
@@ -323,14 +316,16 @@ class AchievementService:
         ]
         
         for threshold, ach_type in volume_thresholds:
-            if total_ml >= threshold and not has_achievement(user_id, ach_type):
-                add_achievement(user_id, ach_type, {"total_ml": total_ml})
-                achievements.append(ach_type)
+            if total_ml >= threshold:
+                has_ach = await has_achievement(user_id, ach_type)
+                if not has_ach:
+                    await add_achievement(user_id, ach_type, {"total_ml": total_ml})
+                    achievements.append(ach_type)
         
         return achievements
     
     @staticmethod
-    def _check_time_achievements(user_id: int, volume_ml: int) -> List[AchievementType]:
+    async def _check_time_achievements(user_id: int, volume_ml: int) -> List[AchievementType]:
         """Check time-based achievements"""
         achievements = []
         now = datetime.now()
@@ -340,50 +335,56 @@ class AchievementService:
         
         # Early bird - drink before 8 AM
         if now.hour < 8:
-            if not has_achievement(user_id, AchievementType.EARLY_BIRD):
-                add_achievement(user_id, AchievementType.EARLY_BIRD, {"time": now.isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.EARLY_BIRD)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.EARLY_BIRD, {"time": now.isoformat()})
                 achievements.append(AchievementType.EARLY_BIRD)
         
         # Morning hydration - drink 500ml before 10 AM
         if now.hour < 10:
-            today_total = get_today_total(user_id)
+            today_total = await get_today_total(user_id)
             if today_total >= 500:
-                if not has_achievement(user_id, AchievementType.MORNING_HYDRATION):
-                    add_achievement(user_id, AchievementType.MORNING_HYDRATION, {"volume": today_total})
+                has_ach = await has_achievement(user_id, AchievementType.MORNING_HYDRATION)
+                if not has_ach:
+                    await add_achievement(user_id, AchievementType.MORNING_HYDRATION, {"volume": today_total})
                     achievements.append(AchievementType.MORNING_HYDRATION)
         
         # Lunch break - drink between 12 and 14
         if 12 <= now.hour < 14:
-            if not has_achievement(user_id, AchievementType.LUNCH_BREAK):
-                add_achievement(user_id, AchievementType.LUNCH_BREAK, {"time": now.isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.LUNCH_BREAK)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.LUNCH_BREAK, {"time": now.isoformat()})
                 achievements.append(AchievementType.LUNCH_BREAK)
         
         # Evening calm - drink between 18 and 21
         if 18 <= now.hour < 21:
-            if not has_achievement(user_id, AchievementType.EVENING_CALM):
-                add_achievement(user_id, AchievementType.EVENING_CALM, {"time": now.isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.EVENING_CALM)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.EVENING_CALM, {"time": now.isoformat()})
                 achievements.append(AchievementType.EVENING_CALM)
         
         # Night owl - drink after 23:00
         if now.hour >= 23:
-            if not has_achievement(user_id, AchievementType.NIGHT_OWL):
-                add_achievement(user_id, AchievementType.NIGHT_OWL, {"time": now.isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.NIGHT_OWL)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.NIGHT_OWL, {"time": now.isoformat()})
                 achievements.append(AchievementType.NIGHT_OWL)
         
         # Midnight snack - drink between 00:00 and 05:00
         if 0 <= now.hour < 5:
-            if not has_achievement(user_id, AchievementType.MIDNIGHT_SNACK):
-                add_achievement(user_id, AchievementType.MIDNIGHT_SNACK, {"time": now.isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.MIDNIGHT_SNACK)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.MIDNIGHT_SNACK, {"time": now.isoformat()})
                 achievements.append(AchievementType.MIDNIGHT_SNACK)
         
         return achievements
     
     @staticmethod
-    def _check_overachievement(user_id: int) -> List[AchievementType]:
+    async def _check_overachievement(user_id: int) -> List[AchievementType]:
         """Check overachievement achievements"""
         achievements = []
-        today_total = get_today_total(user_id)
-        goal = get_user_daily_norm(user_id)
+        today_total = await get_today_total(user_id)
+        goal = await get_user_daily_norm_async(user_id)
         
         if goal <= 0:
             return achievements
@@ -392,58 +393,63 @@ class AchievementService:
         
         # Exact norm - within 50ml tolerance
         if abs(today_total - goal) <= 50:
-            if not has_achievement(user_id, AchievementType.EXACT_NORM):
-                add_achievement(user_id, AchievementType.EXACT_NORM, {"ml": today_total})
+            has_ach = await has_achievement(user_id, AchievementType.EXACT_NORM)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.EXACT_NORM, {"ml": today_total})
                 achievements.append(AchievementType.EXACT_NORM)
         
         # Over 110%
         if percent >= 110:
-            if not has_achievement(user_id, AchievementType.OVER_110):
-                add_achievement(user_id, AchievementType.OVER_110, {"percent": percent})
+            has_ach = await has_achievement(user_id, AchievementType.OVER_110)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.OVER_110, {"percent": percent})
                 achievements.append(AchievementType.OVER_110)
         
         # Over 125%
         if percent >= 125:
-            if not has_achievement(user_id, AchievementType.OVER_125):
-                add_achievement(user_id, AchievementType.OVER_125, {"percent": percent})
+            has_ach = await has_achievement(user_id, AchievementType.OVER_125)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.OVER_125, {"percent": percent})
                 achievements.append(AchievementType.OVER_125)
         
         # Over 150%
         if percent >= 150:
-            if not has_achievement(user_id, AchievementType.OVER_150):
-                add_achievement(user_id, AchievementType.OVER_150, {"percent": percent})
+            has_ach = await has_achievement(user_id, AchievementType.OVER_150)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.OVER_150, {"percent": percent})
                 achievements.append(AchievementType.OVER_150)
         
         # Over 200%
         if percent >= 200:
-            if not has_achievement(user_id, AchievementType.OVER_200):
-                add_achievement(user_id, AchievementType.OVER_200, {"percent": percent})
+            has_ach = await has_achievement(user_id, AchievementType.OVER_200)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.OVER_200, {"percent": percent})
                 achievements.append(AchievementType.OVER_200)
         
         return achievements
     
     @staticmethod
-    def _check_drink_achievements(user_id: int, drink_type: DrinkType) -> List[AchievementType]:
+    async def _check_drink_achievements(user_id: int, drink_type: DrinkType) -> List[AchievementType]:
         """Check drink type achievements"""
         achievements = []
-        from db import get_drink_breakdown, get_logs_for_period
         
         # Check variety king - all 5 drink types in one day
-        breakdown = get_drink_breakdown(user_id)
+        breakdown = await get_drink_breakdown(user_id)
         if len(breakdown) >= 5:
-            if not has_achievement(user_id, AchievementType.VARIETY_KING):
-                add_achievement(user_id, AchievementType.VARIETY_KING, {"types": list(breakdown.keys())})
+            has_ach = await has_achievement(user_id, AchievementType.VARIETY_KING)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.VARIETY_KING, {"types": list(breakdown.keys())})
                 achievements.append(AchievementType.VARIETY_KING)
         
         return achievements
     
     @staticmethod
-    def _check_weekday_achievements(user_id: int) -> List[AchievementType]:
+    async def _check_weekday_achievements(user_id: int) -> List[AchievementType]:
         """Check week day achievements"""
         achievements = []
         now = datetime.now()
-        today_total = get_today_total(user_id)
-        goal = get_user_daily_norm(user_id)
+        today_total = await get_today_total(user_id)
+        goal = await get_user_daily_norm_async(user_id)
         
         if today_total < goal:
             return achievements
@@ -452,99 +458,114 @@ class AchievementService:
         
         # Monday - day 0
         if weekday == 0:
-            if not has_achievement(user_id, AchievementType.MONDAY_START):
-                add_achievement(user_id, AchievementType.MONDAY_START, {"date": now.date().isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.MONDAY_START)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.MONDAY_START, {"date": now.date().isoformat()})
                 achievements.append(AchievementType.MONDAY_START)
         
         # Friday - day 4
         if weekday == 4:
-            if not has_achievement(user_id, AchievementType.FRIDAY_VIBE):
-                add_achievement(user_id, AchievementType.FRIDAY_VIBE, {"date": now.date().isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.FRIDAY_VIBE)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.FRIDAY_VIBE, {"date": now.date().isoformat()})
                 achievements.append(AchievementType.FRIDAY_VIBE)
         
         # Weekend - days 5, 6
         if weekday >= 5:
-            if not has_achievement(user_id, AchievementType.WEEKEND_HERO):
-                add_achievement(user_id, AchievementType.WEEKEND_HERO, {"date": now.date().isoformat()})
+            has_ach = await has_achievement(user_id, AchievementType.WEEKEND_HERO)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.WEEKEND_HERO, {"date": now.date().isoformat()})
                 achievements.append(AchievementType.WEEKEND_HERO)
         
         return achievements
     
     @staticmethod
-    def _check_seasonal_achievements(user_id: int) -> List[AchievementType]:
+    async def _check_seasonal_achievements(user_id: int) -> List[AchievementType]:
         """Check seasonal achievements"""
         achievements = []
         now = datetime.now()
         month = now.month
-        today_total = get_today_total(user_id)
-        goal = get_user_daily_norm(user_id)
+        today_total = await get_today_total(user_id)
+        goal = await get_user_daily_norm_async(user_id)
         
         if today_total < goal:
             return achievements
         
         # Winter: Dec, Jan, Feb
         if month in [12, 1, 2]:
-            if not has_achievement(user_id, AchievementType.WINTER_HYDRATION):
-                add_achievement(user_id, AchievementType.WINTER_HYDRATION, {"month": month})
+            has_ach = await has_achievement(user_id, AchievementType.WINTER_HYDRATION)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.WINTER_HYDRATION, {"month": month})
                 achievements.append(AchievementType.WINTER_HYDRATION)
         
         # Spring: Mar, Apr, May
         if month in [3, 4, 5]:
-            if not has_achievement(user_id, AchievementType.SPRING_AWAKENING):
-                add_achievement(user_id, AchievementType.SPRING_AWAKENING, {"month": month})
+            has_ach = await has_achievement(user_id, AchievementType.SPRING_AWAKENING)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.SPRING_AWAKENING, {"month": month})
                 achievements.append(AchievementType.SPRING_AWAKENING)
         
         # Summer: Jun, Jul, Aug
         if month in [6, 7, 8]:
-            if not has_achievement(user_id, AchievementType.SUMMER_HEAT):
-                add_achievement(user_id, AchievementType.SUMMER_HEAT, {"month": month})
+            has_ach = await has_achievement(user_id, AchievementType.SUMMER_HEAT)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.SUMMER_HEAT, {"month": month})
                 achievements.append(AchievementType.SUMMER_HEAT)
         
         # Autumn: Sep, Oct, Nov
         if month in [9, 10, 11]:
-            if not has_achievement(user_id, AchievementType.AUTUMN_RAIN):
-                add_achievement(user_id, AchievementType.AUTUMN_RAIN, {"month": month})
+            has_ach = await has_achievement(user_id, AchievementType.AUTUMN_RAIN)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.AUTUMN_RAIN, {"month": month})
                 achievements.append(AchievementType.AUTUMN_RAIN)
         
         # New Year - Jan 1st
         if month == 1 and now.day == 1:
-            if not has_achievement(user_id, AchievementType.NEW_YEAR):
-                add_achievement(user_id, AchievementType.NEW_YEAR, {"year": now.year})
+            has_ach = await has_achievement(user_id, AchievementType.NEW_YEAR)
+            if not has_ach:
+                await add_achievement(user_id, AchievementType.NEW_YEAR, {"year": now.year})
                 achievements.append(AchievementType.NEW_YEAR)
         
         return achievements
     
     @staticmethod
-    def _check_special_achievements(user_id: int) -> List[AchievementType]:
+    async def _check_special_achievements(user_id: int) -> List[AchievementType]:
         """Check special achievements"""
         achievements = []
-        user = get_user(user_id)
+        user = await get_user(user_id)
         
         if not user:
             return achievements
         
         # First day
-        if not has_achievement(user_id, AchievementType.FIRST_DAY):
-            add_achievement(user_id, AchievementType.FIRST_DAY, {"date": datetime.now().date().isoformat()})
+        has_ach = await has_achievement(user_id, AchievementType.FIRST_DAY)
+        if not has_ach:
+            await add_achievement(user_id, AchievementType.FIRST_DAY, {"date": datetime.now().date().isoformat()})
             achievements.append(AchievementType.FIRST_DAY)
         
         # First week - 7 days since registration
         if user.created_at:
             days_since = (datetime.utcnow() - user.created_at).days
-            if days_since >= 7 and not has_achievement(user_id, AchievementType.FIRST_WEEK):
-                add_achievement(user_id, AchievementType.FIRST_WEEK, {"days": days_since})
-                achievements.append(AchievementType.FIRST_WEEK)
+            if days_since >= 7:
+                has_ach = await has_achievement(user_id, AchievementType.FIRST_WEEK)
+                if not has_ach:
+                    await add_achievement(user_id, AchievementType.FIRST_WEEK, {"days": days_since})
+                    achievements.append(AchievementType.FIRST_WEEK)
             
-            if days_since >= 30 and not has_achievement(user_id, AchievementType.FIRST_MONTH):
-                add_achievement(user_id, AchievementType.FIRST_MONTH, {"days": days_since})
-                achievements.append(AchievementType.FIRST_MONTH)
+            if days_since >= 30:
+                has_ach = await has_achievement(user_id, AchievementType.FIRST_MONTH)
+                if not has_ach:
+                    await add_achievement(user_id, AchievementType.FIRST_MONTH, {"days": days_since})
+                    achievements.append(AchievementType.FIRST_MONTH)
         
         # Comeback - after 3+ days of inactivity
         if user.last_active_date:
             days_inactive = (date.today() - user.last_active_date).days
-            if days_inactive >= 3 and not has_achievement(user_id, AchievementType.COMEBACK):
-                add_achievement(user_id, AchievementType.COMEBACK, {"days_inactive": days_inactive})
-                achievements.append(AchievementType.COMEBACK)
+            if days_inactive >= 3:
+                has_ach = await has_achievement(user_id, AchievementType.COMEBACK)
+                if not has_ach:
+                    await add_achievement(user_id, AchievementType.COMEBACK, {"days_inactive": days_inactive})
+                    achievements.append(AchievementType.COMEBACK)
         
         return achievements
     
@@ -567,6 +588,7 @@ class AchievementService:
             "rarity_name": Locale.get(f"rarity_{rarity}", lang)
         }
 
+
 achievement_service = AchievementService()
 
 
@@ -582,13 +604,15 @@ class InsightsService:
         """Generate insights based on weekly patterns"""
         insights = []
         
-        week_stats = get_week_stats(user_id)
-        if not week_stats.days:
+        week_stats = await get_week_stats(user_id)
+        if not week_stats.get("days"):
             return insights
         
+        days = week_stats["days"]
+        
         # Calculate patterns
-        weekday_avg = sum(d.total_ml for d in week_stats.days[:5]) / 5 if week_stats.days[:5] else 0
-        weekend_avg = sum(d.total_ml for d in week_stats.days[5:]) / 2 if week_stats.days[5:] else 0
+        weekday_avg = sum(d["total_ml"] for d in days[:5]) / 5 if days[:5] else 0
+        weekend_avg = sum(d["total_ml"] for d in days[5:]) / 2 if days[5:] else 0
         
         # Weekend vs weekday pattern
         if weekend_avg > 0 and weekday_avg > 0:
@@ -606,13 +630,13 @@ class InsightsService:
                     insights.append(f"📊 You drink {int(abs(diff_percent))}% less on weekends. Try setting reminders!")
         
         # Time-based patterns (simplified)
-        user = get_user(user_id)
+        user = await get_user(user_id)
         if user:
             # Check if user has low activity in evening
             evening_logs = 0
             total_logs = 0
             
-            logs = get_logs_for_period(user_id, date.today() - timedelta(days=7), date.today())
+            logs = await get_logs_for_period(user_id, date.today() - timedelta(days=7), date.today())
             for log in logs:
                 total_logs += 1
                 if log.logged_at and log.logged_at.hour >= 18:
@@ -625,8 +649,10 @@ class InsightsService:
                     insights.append("💡 You rarely drink water after 6 PM. Try a reminder at 5:30 PM!")
         
         # Best day insight
-        if week_stats.best_day and week_stats.best_day.total_ml > 0:
-            day_name = week_stats.best_day.date.strftime("%A")
+        best_day = week_stats.get("best_day")
+        if best_day and best_day.get("total_ml", 0) > 0:
+            date_obj = best_day["date"]
+            day_name = date_obj.strftime("%A")
             if lang == "ru":
                 day_names = {
                     "Monday": "понедельник", "Tuesday": "вторник",
@@ -634,20 +660,21 @@ class InsightsService:
                     "Friday": "пятницу", "Saturday": "субботу", "Sunday": "воскресенье"
                 }
                 day_name = day_names.get(day_name, day_name)
-                insights.append(f"🏆 Лучший результат был в {day_name}: {week_stats.best_day.total_ml} мл")
+                insights.append(f"🏆 Лучший результат был в {day_name}: {best_day['total_ml']} мл")
             else:
-                insights.append(f"🏆 Best result was on {day_name}: {week_stats.best_day.total_ml} ml")
+                insights.append(f"🏆 Best result was on {day_name}: {best_day['total_ml']} ml")
         
         # Streak insight
-        if week_stats.streak >= 3:
+        streak = week_stats.get("streak", 0)
+        if streak >= 3:
             if lang == "ru":
-                insights.append(f"🔥 Отличная серия: {week_stats.streak} дней подряд!")
+                insights.append(f"🔥 Отличная серия: {streak} дней подряд!")
             else:
-                insights.append(f"🔥 Great streak: {week_stats.streak} days in a row!")
+                insights.append(f"🔥 Great streak: {streak} days in a row!")
         
         # Save insights
         for text in insights:
-            add_insight(user_id, text, "weekly_pattern")
+            await add_insight(user_id, text, "weekly_pattern")
         
         return insights
 
@@ -707,9 +734,9 @@ def get_progress_bar(current: int, goal: int, width: int = 10) -> str:
     
     # Use different characters for different fill levels
     if percent >= 1.0:
-        return "💧" * width
+        return "█" * width
     else:
-        return "💧" * filled + "░" * empty
+        return "█" * filled + "░" * empty
 
 
 def get_water_glass_emoji(percent: float) -> str:
@@ -767,11 +794,11 @@ def format_main_message(
 # TIMEZONE HELPERS
 # ============================================================================
 
-def get_user_local_time(user_id: int) -> datetime:
+async def get_user_local_time(user_id: int) -> datetime:
     """Get user's local time based on their timezone"""
     from zoneinfo import ZoneInfo
     
-    user = get_user(user_id)
+    user = await get_user(user_id)
     if not user or not user.timezone:
         return datetime.utcnow()
     
@@ -782,9 +809,10 @@ def get_user_local_time(user_id: int) -> datetime:
         return datetime.utcnow()
 
 
-def get_user_local_date(user_id: int) -> date:
+async def get_user_local_date(user_id: int) -> date:
     """Get user's local date"""
-    return get_user_local_time(user_id).date()
+    local_time = await get_user_local_time(user_id)
+    return local_time.date()
 
 
 # ============================================================================
@@ -799,36 +827,17 @@ async def export_user_data(user_id: int, format: str = "json") -> Tuple[str, str
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     if format == "csv":
-        content = export_to_csv(user_id)
+        content = await export_to_csv(user_id)
         filename = f"water_export_{user_id}_{timestamp}.csv"
     else:
         import json
-        data = export_to_dict(user_id)
+        data = await export_to_dict(user_id)
         content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
         filename = f"water_export_{user_id}_{timestamp}.json"
     
     return content, filename
 
-# Синхронная версия для обратной совместимости
-def get_user_daily_norm_sync(user_id: int, temperature: float = 20.0) -> int:
-    """Синхронная версия get_user_daily_norm для использования в синхронном коде"""
-    try:
-        import asyncio
-        # Пытаемся получить существующий event loop
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Если loop уже запущен, создаем новый в отдельном потоке
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, get_user_daily_norm(user_id, temperature))
-                    return future.result()
-            else:
-                return loop.run_until_complete(get_user_daily_norm(user_id, temperature))
-        except RuntimeError:
-            # Нет запущенного loop, создаем новый
-            return asyncio.run(get_user_daily_norm(user_id, temperature))
-    except Exception as e:
-        # В случае ошибки возвращаем значение по умолчанию
-        print(f"Error in get_user_daily_norm_sync: {e}")
-        return 2000
+
+# Добавляем логгер, если его нет
+import logging
+logger = logging.getLogger(__name__)

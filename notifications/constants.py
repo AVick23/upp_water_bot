@@ -25,7 +25,7 @@ NOTIFICATION_PRESETS = {
     },
     "night_owl": {
         "start": 10 * 60,      # 10:00
-        "end": 2 * 60,         # 2:00 (следующего дня)
+        "end": 2 * 60,         # 2:00 (следующего дня) - ВНИМАНИЕ: end < start!
         "name_ru": "🌙 Сова",
         "name_en": "🌙 Night owl",
         "description_ru": "Для тех, кто поздно ложится",

@@ -3,11 +3,14 @@ Utility functions for notifications module
 """
 
 import re
+import logging
 from typing import Optional, Tuple, Dict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from notifications.constants import NOTIFICATION_PRESETS, TIME_CATEGORIES
+
+logger = logging.getLogger(__name__)
 
 
 def format_notification_time(minutes: int) -> str:
@@ -22,7 +25,8 @@ def parse_notification_time(time_str: str) -> Optional[int]:
     Parse time string (HH:MM) to minutes from midnight
     Returns None if invalid
     """
-    match = re.match(r'^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$', time_str)
+    # Поддерживаем форматы "ЧЧ:ММ" и "Ч:ММ"
+    match = re.match(r'^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-5][0-9])$', time_str.strip())
     if match:
         hour = int(match.group(1))
         minute = int(match.group(2))
@@ -85,6 +89,23 @@ def get_time_recommendation(hour: int, lang: str = "ru") -> str:
     return recommendations.get(category, recommendations["night"])[lang]
 
 
+def is_time_in_window(
+    current_minutes: int,
+    start_minutes: int,
+    end_minutes: int
+) -> bool:
+    """
+    Check if current time is within notification window.
+    Correctly handles windows that cross midnight (end_minutes < start_minutes).
+    """
+    if end_minutes > start_minutes:
+        # Normal window (e.g., 8:00 - 22:00)
+        return start_minutes <= current_minutes < end_minutes
+    else:
+        # Window crosses midnight (e.g., 22:00 - 2:00)
+        return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
 def calculate_next_notification_time(
     current_time: datetime,
     interval_minutes: int,
@@ -93,40 +114,81 @@ def calculate_next_notification_time(
     timezone: str = "UTC"
 ) -> Optional[datetime]:
     """
-    Calculate next notification time within window
+    Calculate next notification time within window.
+    Correctly handles windows that cross midnight.
     """
     try:
         tz = ZoneInfo(timezone)
         local_time = current_time.astimezone(tz)
         local_minutes = local_time.hour * 60 + local_time.minute
         
-        # If current time is after end, next notification is tomorrow at start
-        if local_minutes >= end_minutes:
-            next_date = local_time.date() + timedelta(days=1)
-            next_local = datetime.combine(
-                next_date, 
-                datetime.min.time(), 
-                tzinfo=tz
-            ) + timedelta(minutes=start_minutes)
-            return next_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        # Check if we're in an active window
+        in_window = is_time_in_window(local_minutes, start_minutes, end_minutes)
         
-        # Calculate next time within today
-        next_minutes = local_minutes + interval_minutes
-        if next_minutes > end_minutes:
-            next_minutes = start_minutes + (next_minutes - end_minutes)
-            next_date = local_time.date() + timedelta(days=1)
+        if not in_window:
+            # Not in window - find next window start
+            if end_minutes > start_minutes:
+                # Normal window, next start is today if before start, else tomorrow
+                if local_minutes < start_minutes:
+                    next_minutes = start_minutes
+                    next_date = local_time.date()
+                else:
+                    next_minutes = start_minutes
+                    next_date = local_time.date() + timedelta(days=1)
+            else:
+                # Window crosses midnight
+                if local_minutes >= end_minutes and local_minutes < start_minutes:
+                    # We're in the gap between end and start (e.g., 2:00-22:00)
+                    next_minutes = start_minutes
+                    next_date = local_time.date()
+                else:
+                    # We're after start but before midnight, or after midnight before end
+                    # Actually we're in the window? This case should have been caught by in_window
+                    next_minutes = start_minutes
+                    next_date = local_time.date() + timedelta(days=1)
         else:
-            next_date = local_time.date()
+            # In window - calculate next interval
+            next_minutes = local_minutes + interval_minutes
+            
+            # Check if next_minutes exceeds window end
+            if end_minutes > start_minutes:
+                # Normal window
+                if next_minutes >= end_minutes:
+                    next_minutes = start_minutes
+                    next_date = local_time.date() + timedelta(days=1)
+                else:
+                    next_date = local_time.date()
+            else:
+                # Window crosses midnight
+                if next_minutes >= 24 * 60:
+                    # Wrapped to next day
+                    next_minutes -= 24 * 60
+                
+                if next_minutes >= end_minutes and next_minutes < start_minutes:
+                    # We've left the window (in the gap)
+                    next_minutes = start_minutes
+                    next_date = local_time.date() + timedelta(days=1)
+                else:
+                    next_date = local_time.date()
+                    if next_minutes < local_minutes:
+                        # We wrapped around midnight
+                        next_date += timedelta(days=1)
         
+        # Build next datetime
         next_local = datetime.combine(
             next_date,
             datetime.min.time(),
             tzinfo=tz
         ) + timedelta(minutes=next_minutes)
         
+        # Don't schedule in the past
+        if next_local <= local_time:
+            next_local += timedelta(days=1)
+        
         return next_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         
     except Exception as e:
+        logger.error(f"Error calculating next notification time: {e}")
         return None
 
 
@@ -158,3 +220,15 @@ def format_notification_summary(
         return f"🔔 **Уведомления:** {status}\n⏰ **Время:** {time_range}"
     else:
         return f"🔔 **Notifications:** {status}\n⏰ **Time:** {time_range}"
+
+
+def clean_user_notification_data(context, user_id: int) -> None:
+    """Clean up temporary notification data for a user"""
+    keys_to_remove = [
+        "notif_time_type",
+        "hour_range",
+        "selected_hour",
+        "waiting_custom_time"
+    ]
+    for key in keys_to_remove:
+        context.user_data.pop(key, None)

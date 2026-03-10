@@ -127,8 +127,8 @@ class MiddlewareManager:
             if update.effective_user:
                 self.metrics.record_user(update.effective_user.id)
             
-            # Rate limiting
-            if update.effective_user and self.rate_limiter.is_rate_limited(update.effective_user.id):
+            # Rate limiting - проверяем наличие effective_message
+            if update.effective_user and update.effective_message and self.rate_limiter.is_rate_limited(update.effective_user.id):
                 lang = get_user_locale(update)
                 from config import Locale
                 L = Locale.RU if lang == "ru" else Locale.EN
@@ -178,18 +178,19 @@ async def setup_middleware(application):
             await original_process_update(update)
         
         try:
-            # Создаем контекст через внутренний метод application
-            # Это правильный способ получить полностью инициализированный контекст
-            context = await application._get_context(update)
+            # Исправлено: создаем контекст напрямую, без использования _get_context
+            context = ContextTypes.DEFAULT_TYPE(application)
             
-            if context is None:
-                # Fallback: создаем минимальный контекст
-                context = ContextTypes.DEFAULT_TYPE(application)
-                # Устанавливаем ID чата и пользователя
-                if update.effective_chat:
-                    context._chat_id = update.effective_chat.id
-                if update.effective_user:
-                    context._user_id = update.effective_user.id
+            # Устанавливаем базовые данные контекста
+            if update.effective_chat:
+                context._chat_id = update.effective_chat.id
+            if update.effective_user:
+                context._user_id = update.effective_user.id
+                # Загружаем user_data если есть
+                if update.effective_user.id in application.user_data:
+                    context._user_data = application.user_data[update.effective_user.id]
+                else:
+                    context._user_data = {}
             
             await middleware_manager.process(update, context, handler_with_context)
             
