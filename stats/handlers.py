@@ -15,7 +15,7 @@ from db import (
     get_user, get_achievements_count, get_user_achievements,
     export_to_dict, export_to_csv
 )
-from services import get_user_daily_norm, get_user_daily_norm_sync, achievement_service
+from services import get_user_daily_norm_async, achievement_service
 from stats.keyboards import (
     get_stats_keyboard, get_detailed_stats_keyboard,
     get_comparison_keyboard, get_heatmap_keyboard,
@@ -72,7 +72,7 @@ async def cb_stats_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Get user for goal
     user = await get_user(user_id)
-    daily_goal = get_user_daily_norm_sync(user_id)
+    daily_goal = await get_user_daily_norm_async(user_id)  # Исправлено: используем асинхронную версию
     
     # Format message based on period
     if period == "day":
@@ -136,7 +136,7 @@ async def format_week_stats(user_id: int, data: dict, goal: int, lang: str) -> s
         f"🔥 {L['stats_streak']}: {week_stats['streak']} {L['stats_days']}\n"
     )
     
-    if data['best_day']:
+    if data.get('best_day'):
         text += f"🏆 {L['stats_best_day']}: {data['best_value']} мл ({data['best_day'].strftime('%d.%m')})\n"
     
     # Add daily breakdown
@@ -161,7 +161,7 @@ async def format_month_stats(user_id: int, data: dict, goal: int, lang: str) -> 
         f"{data['start_date'].strftime('%d.%m')} - {data['end_date'].strftime('%d.%m')}\n\n"
         f"💧 {L['stats_total']}: {format_number(data['total_ml'], lang)} мл\n"
         f"📊 {L['stats_average']}: {format_number(data['average_ml'], lang)} мл/день\n"
-        f"📅 {L['stats_active_days']}: {data['active_days']} / {data['total_days']} "
+        f"📅 {L.get('stats_active_days', 'Активных дней')}: {data['active_days']} / {data['total_days']} "
         f"({(data['active_days']/data['total_days']*100):.0f}%)\n\n"
     )
     
@@ -195,16 +195,16 @@ async def format_all_time_stats(user_id: int, data: dict, goal: int, lang: str) 
     achievements_count = await get_achievements_count(user_id)
     
     text = (
-        f"💫 **{L['stats_all_time']}**\n\n"
+        f"💫 **{L.get('stats_all_time', 'Всё время')}**\n\n"
         f"💧 {L['stats_total']}: {format_number(user.total_water_ml or 0, lang)} мл\n"
-        f"📅 {L['stats_active_days']}: {data['active_days']} {L['stats_days']}\n"
-        f"🔥 {L['stats_best_streak']}: {user.longest_streak or 0} {L['stats_days']}\n"
-        f"🏆 {L['stats_achievements']}: {achievements_count}\n"
-        f"⭐ {L['stats_level']}: {user.level or 1} ({user.xp or 0} XP)\n"
+        f"📅 {L.get('stats_active_days', 'Активных дней')}: {data['active_days']} {L['stats_days']}\n"
+        f"🔥 {L.get('stats_best_streak', 'Лучшая серия')}: {user.longest_streak or 0} {L['stats_days']}\n"
+        f"🏆 {L.get('stats_achievements', 'Достижения')}: {achievements_count}\n"
+        f"⭐ {L.get('stats_level', 'Уровень')}: {user.level or 1} ({user.xp or 0} XP)\n"
     )
     
-    if data['best_day']:
-        text += f"🌟 {L['stats_best_day']}: {data['best_value']} мл ({data['best_day'].strftime('%d.%m.%Y')})\n"
+    if data.get('best_day'):
+        text += f"🌟 {L.get('stats_best_day', 'Лучший день')}: {data['best_value']} мл ({data['best_day'].strftime('%d.%m.%Y')})\n"
     
     return text
 
@@ -254,13 +254,13 @@ async def cb_stats_streaks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             streak_achievements.append(ach)
     
     text = (
-        f"🔥 **{L['stats_streaks']}**\n\n"
-        f"📅 {L['stats_current_streak']}: {user.current_streak or 0} {L['stats_days']}\n"
-        f"🏆 {L['stats_best_streak']}: {user.longest_streak or 0} {L['stats_days']}\n\n"
+        f"🔥 **{L.get('stats_streaks', 'Серии')}**\n\n"
+        f"📅 {L.get('stats_current_streak', 'Текущая серия')}: {user.current_streak or 0} {L['stats_days']}\n"
+        f"🏆 {L.get('stats_best_streak', 'Лучшая серия')}: {user.longest_streak or 0} {L['stats_days']}\n\n"
     )
     
     if streak_achievements:
-        text += "**" + (L['stats_streak_achievements'] if hasattr(L, 'stats_streak_achievements') else "Достижения за серии:") + "**\n"
+        text += "**" + (L.get('stats_streak_achievements', 'Достижения за серии:') if hasattr(L, 'stats_streak_achievements') else "Достижения за серии:") + "**\n"
         for ach in streak_achievements[:5]:
             ach_info = achievement_service.get_achievement_info(ach.achievement_type, lang)
             text += f"{ach_info['emoji']} {ach_info['name']}\n"
@@ -288,6 +288,7 @@ async def cb_export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Get period for export
     if period == "all":
+        from services import export_user_data
         content, filename = await export_user_data(user_id, format_type)
     else:
         # For specific period, we need to filter
@@ -325,20 +326,6 @@ async def cb_export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         L["export_success"],
         reply_markup=get_stats_keyboard(lang)
     )
-
-
-async def export_user_data(user_id: int, format_type: str) -> tuple:
-    """Export all user data"""
-    if format_type == "csv":
-        content = await export_to_csv(user_id)
-        filename = f"water_export_all_{user_id}_{date.today().isoformat()}.csv"
-    else:
-        data = await export_to_dict(user_id)
-        import json
-        content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-        filename = f"water_export_all_{user_id}_{date.today().isoformat()}.json"
-    
-    return content, filename
 
 
 def export_logs_to_csv(logs) -> str:
