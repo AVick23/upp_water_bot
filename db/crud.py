@@ -3,8 +3,14 @@ Async CRUD operations for WaterBot.
 """
 
 import json
+import math
+import logging
+import io
+import csv
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import func, and_, select, delete, update
 from sqlalchemy.sql import exists
 
@@ -17,6 +23,9 @@ from config import (
     Gender, ActivityLevel, ActivityMode, DrinkType, AchievementType,
     DRINK_COEFFICIENTS, WATER_PRESETS, ACHIEVEMENTS, config
 )
+from services import get_user_daily_norm_async  # Импортируем асинхронную версию
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -265,6 +274,26 @@ async def delete_last_log(user_id: int) -> bool:
         return False
 
 
+async def delete_all_logs(user_id: int) -> None:
+    """Delete all water logs for a user."""
+    async with session_manager.session() as session:
+        await session.execute(
+            delete(WaterLog).where(WaterLog.user_id == user_id)
+        )
+        await session.commit()
+    logger.info(f"Deleted all logs for user {user_id}")
+
+
+async def delete_user(user_id: int) -> None:
+    """Delete user and all associated data."""
+    async with session_manager.session() as session:
+        user = await session.get(User, user_id)
+        if user:
+            await session.delete(user)
+            await session.commit()
+            logger.info(f"Deleted user {user_id}")
+
+
 # ============================================================================
 # ACHIEVEMENTS CRUD
 # ============================================================================
@@ -418,9 +447,6 @@ async def get_user_stats(user_id: int, daily_goal: int = 2000) -> Dict[str, Any]
 
 async def get_week_stats(user_id: int, daily_goal: int = 2000) -> Dict[str, Any]:
     """Get detailed weekly statistics."""
-    from dataclasses import dataclass
-    from typing import List
-    
     days = []
     best_day = None
     best_ml = 0
@@ -624,13 +650,6 @@ async def reschedule_smart_notifications(user_id: int):
     Recalculate and recreate all smart reminders for a user
     based on current goal, progress, and notification window.
     """
-    from zoneinfo import ZoneInfo
-    import math
-    from services import get_user_daily_norm  # will need to make async
-    
-    # Note: get_user_daily_norm uses sync weather, but we'll keep it sync for now
-    # In future, make it async too
-    
     user = await get_user(user_id)
     if not user or not user.notifications_enabled:
         await delete_future_notifications(user_id)
@@ -655,9 +674,7 @@ async def reschedule_smart_notifications(user_id: int):
     effective_start = max(local_minutes_now, start_min)
     
     # 3. Get goal and today's total
-    # For now, we use sync version; later make it async
-    from services import get_user_daily_norm_sync  # let's assume we have sync version
-    goal = get_user_daily_norm_sync(user_id)
+    goal = await get_user_daily_norm_async(user_id)
     today_total = await get_today_total(user_id)
     remaining = max(0, goal - today_total)
     
@@ -721,7 +738,7 @@ async def migrate_legacy_notification_times():
             user.notification_end_minutes = user.notification_end * 60
         if users:
             await session.commit()
-            print(f"✅ Migrated {len(users)} users to minute-based notification times.")
+            logger.info(f"Migrated {len(users)} users to minute-based notification times.")
 
 
 # ============================================================================
@@ -817,9 +834,6 @@ async def export_to_dict(user_id: int) -> Dict[str, Any]:
 
 async def export_to_csv(user_id: int) -> str:
     """Export water logs to CSV format."""
-    import io
-    import csv
-    
     logs = await get_logs_for_period(
         user_id,
         date.today() - timedelta(days=365),
