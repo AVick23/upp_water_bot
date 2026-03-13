@@ -17,7 +17,8 @@ from db import (
     mark_notification_sent, 
     get_user,
     get_today_total,
-    reschedule_smart_notifications
+    reschedule_smart_notifications,
+    schedule_notification
 )
 from services import get_user_daily_norm_async, weather_service
 from notifications.constants import NOTIFICATION_MESSAGES, GOAL_COMPLETION_MESSAGES
@@ -179,10 +180,78 @@ async def send_generic_notification(context, user, notif, lang):
         logger.error(f"Failed to send generic notification to user {user.id}: {e}")
 
 
+async def create_daily_morning_evening_notifications(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Создаёт утренние и вечерние уведомления для всех пользователей на следующий день.
+    Запускается раз в день в 00:05.
+    """
+    from db.session import session_manager
+    from db.models import User
+    from sqlalchemy import select
+    
+    logger.info("Creating morning/evening notifications for tomorrow")
+    
+    try:
+        async with session_manager.session() as session:
+            # Получаем всех пользователей с включёнными уведомлениями
+            result = await session.execute(
+                select(User).where(User.notifications_enabled == True)
+            )
+            users = result.scalars().all()
+            
+            tomorrow = datetime.now() + timedelta(days=1)
+            created_count = 0
+            
+            for user in users:
+                try:
+                    tz = ZoneInfo(user.timezone or "UTC")
+                    start_min = user.notification_start_minutes or 480   # 8:00 по умолчанию
+                    end_min = user.notification_end_minutes or 1320      # 22:00 по умолчанию
+                    
+                    # 1. Утреннее уведомление (время начала окна)
+                    morning_time = datetime.combine(
+                        tomorrow.date(),
+                        datetime.min.time(),
+                        tzinfo=tz
+                    ) + timedelta(minutes=start_min)
+                    
+                    await schedule_notification(
+                        user_id=user.id,
+                        notification_type="morning",
+                        scheduled_utc=morning_time.astimezone(ZoneInfo("UTC")).replace(tzinfo=None),
+                        context={"type": "morning"}
+                    )
+                    
+                    # 2. Вечернее уведомление (за 30 минут до конца окна)
+                    evening_time = datetime.combine(
+                        tomorrow.date(),
+                        datetime.min.time(),
+                        tzinfo=tz
+                    ) + timedelta(minutes=end_min - 30)
+                    
+                    await schedule_notification(
+                        user_id=user.id,
+                        notification_type="evening",
+                        scheduled_utc=evening_time.astimezone(ZoneInfo("UTC")).replace(tzinfo=None),
+                        context={"type": "evening"}
+                    )
+                    
+                    created_count += 2
+                    logger.debug(f"Created morning/evening notifications for user {user.id}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create notifications for user {user.id}: {e}")
+            
+            logger.info(f"Created {created_count} morning/evening notifications for {len(users)} users")
+                    
+    except Exception as e:
+        logger.error(f"Error in create_daily_morning_evening_notifications: {e}")
+
+
 async def job_daily_reset(context: ContextTypes.DEFAULT_TYPE):
     """
     Запускается каждый час.
-    Проверяет пользователей и перепланирует уведомления.
+    Проверяет пользователей и перепланирует умные уведомления.
     """
     reset_hour = getattr(config, 'STREAK_RESET_HOUR', 6)
     
@@ -220,8 +289,19 @@ def register_jobs(application):
     """Register background jobs"""
     job_queue = application.job_queue
     if job_queue:
+        # Проверка и отправка уведомлений каждую минуту
         job_queue.run_repeating(job_minute_check, interval=60, first=1)
+        
+        # Проверка для ежедневного сброса каждый час
         job_queue.run_repeating(job_daily_reset, interval=3600, first=10)
-        logger.info("JobQueue initialized: minute checks and daily reset.")
+        
+        # НОВОЕ: Создание morning/evening уведомлений каждый день в 00:05 UTC
+        from datetime import time
+        job_queue.run_daily(
+            create_daily_morning_evening_notifications,
+            time=time(hour=0, minute=5, tzinfo=ZoneInfo("UTC"))
+        )
+        
+        logger.info("JobQueue initialized: minute checks, daily reset, and morning/evening creation.")
     else:
         logger.warning("JobQueue not available - notifications will not be sent automatically")

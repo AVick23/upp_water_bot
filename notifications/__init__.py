@@ -3,7 +3,12 @@ Notifications module for WaterBot
 Handles scheduled tasks, reminders, and notification management
 """
 
-from notifications.jobs import register_jobs, job_minute_check, job_daily_reset
+from notifications.jobs import (
+    register_jobs, 
+    job_minute_check, 
+    job_daily_reset,
+    create_daily_morning_evening_notifications  # НОВОЕ
+)
 from notifications.handlers import (
     cb_settings_notifications,
     cb_toggle_notifications,
@@ -107,6 +112,7 @@ __all__ = [
     # Jobs
     'job_minute_check',
     'job_daily_reset',
+    'create_daily_morning_evening_notifications',  # НОВОЕ
     
     # Handlers
     'cb_settings_notifications',

@@ -694,7 +694,20 @@ async def reschedule_smart_notifications(user_id: int):
     
     interval = remaining_minutes / glasses
     
-    await delete_future_notifications(user_id)
+    # Удаляем будущие smart reminders, но сохраняем morning/evening
+    async with session_manager.session() as session:
+        await session.execute(
+            delete(NotificationSchedule)
+            .where(
+                and_(
+                    NotificationSchedule.user_id == user_id,
+                    NotificationSchedule.is_sent == False,
+                    NotificationSchedule.notification_type == "smart_reminder",
+                    NotificationSchedule.scheduled_time > datetime.utcnow()
+                )
+            )
+        )
+        await session.commit()
     
     for i in range(glasses):
         remind_local_minutes = effective_start + (i + 1) * interval
